@@ -1,4 +1,4 @@
-#  Venda de Água — Frontend
+#  Frontend-Parahybaja
 
 PWA em **React + TypeScript + Vite + Tailwind CSS** para a equipe acompanhar meta,
 presença, calendário e histórico das vendas de água aos sábados.
