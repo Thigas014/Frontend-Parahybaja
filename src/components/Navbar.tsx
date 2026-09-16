@@ -16,7 +16,7 @@ export function Navbar() {
       <header className="flex lg:hidden items-center justify-between px-4 py-3 bg-white border-b border-slate-100 sticky top-0 z-20">
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="Equipe Parahy Baja 4x4" className="h-8 w-auto" />
-          <span className="font-bold text-slate-800 text-sm">Venda de Água</span>
+          <span className="font-bold text-slate-800 text-sm">Parahybaja</span>
         </div>
         <button
           onClick={logout}
@@ -30,7 +30,7 @@ export function Navbar() {
       <header className="hidden lg:flex items-center justify-between px-6 py-3 bg-white border-b border-slate-100 sticky top-0 z-20">
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="Equipe Parahy Baja 4x4" className="h-10 w-auto" />
-          <span className="font-bold text-slate-800">Venda de Água</span>
+          <span className="font-bold text-slate-800">Parahybaja</span>
         </div>
 
         <nav className="flex items-center gap-1">

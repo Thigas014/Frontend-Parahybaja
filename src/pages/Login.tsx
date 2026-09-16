@@ -29,8 +29,8 @@ export function Login() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <img src="/logo.png" alt="Equipe Parahy Baja 4x4" className="h-24 w-auto mx-auto mb-3" />
-          <h1 className="text-2xl font-bold text-slate-800">Venda de Água</h1>
-          <p className="text-slate-500 text-sm mt-1">Gestão de vendas aos sábados</p>
+          
+          
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 space-y-4">

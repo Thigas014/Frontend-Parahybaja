@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'logo.png'],
       manifest: {
-        name: 'Equipe Parahy Baja 4x4 - Venda de Água',
-        short_name: 'Parahy Baja',
+        name: 'Parahybaja',
+        short_name: 'Parahybaja',
         description: 'Gestão de vendas de água da Equipe Parahy Baja 4x4',
         theme_color: '#0ea5e9',
         background_color: '#f0f9ff',
