@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
   justificarAusencia,
+  listarDiasDeVenda,
   listarPresencas,
   listarUsuarios,
   marcarPresenca,
   marcarTaxaPaga,
   obterConfiguracao
 } from '../api/services'
-import type { Presenca as PresencaType, Usuario } from '../types'
+import type { DiaDeVenda, Presenca as PresencaType, Usuario } from '../types'
 import { Card } from '../components/Card'
 import { useAuth } from '../context/AuthContext'
 
@@ -15,219 +16,473 @@ function formatarMoeda(valor: number) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+function formatarDataCurta(iso: string) {
+  const [, mes, dia] = iso.split('-')
+  return `${dia}/${mes}`
+}
+
 function hojeISO() {
   const hoje = new Date()
-  const ano = hoje.getFullYear()
-  const mes = String(hoje.getMonth() + 1).padStart(2, '0')
-  const dia = String(hoje.getDate()).padStart(2, '0')
-  return `${ano}-${mes}-${dia}`
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`
 }
 
 export function Presenca() {
   const { usuario, isAdmin } = useAuth()
-  const [data, setData] = useState(hojeISO())
-  const [presencas, setPresencas] = useState<PresencaType[]>([])
+  const [dias, setDias] = useState<DiaDeVenda[]>([])
   const [membros, setMembros] = useState<Usuario[]>([])
   const [taxaConfigurada, setTaxaConfigurada] = useState(0)
   const [carregando, setCarregando] = useState(true)
+
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [presencasPorData, setPresencasPorData] = useState<Record<string, PresencaType[]>>({})
+  const [carregandoPresenca, setCarregandoPresenca] = useState(false)
 
   const [minhaJustificativa, setMinhaJustificativa] = useState('')
   const [enviandoJustificativa, setEnviandoJustificativa] = useState(false)
   const [erroJustificativa, setErroJustificativa] = useState('')
 
-  async function carregar() {
+  async function carregarBase() {
     setCarregando(true)
-    const promessas: Promise<any>[] = [listarPresencas(data), obterConfiguracao()]
-    if (isAdmin) promessas.push(listarUsuarios())
+
+    const promessas: Promise<any>[] = [
+      listarDiasDeVenda(),
+      obterConfiguracao()
+    ]
+
+    if (isAdmin) {
+      promessas.push(listarUsuarios())
+    }
 
     const resultados = await Promise.all(promessas)
-    setPresencas(resultados[0])
+
+    const hoje = hojeISO()
+
+    setDias(
+      [...resultados[0]].sort((a: DiaDeVenda, b: DiaDeVenda) => {
+        const aFutura = a.data >= hoje
+        const bFutura = b.data >= hoje
+
+        if (aFutura && !bFutura) return -1
+        if (!aFutura && bFutura) return 1
+
+        if (aFutura && bFutura) {
+          return a.data.localeCompare(b.data)
+        }
+
+        return b.data.localeCompare(a.data)
+      })
+    )
+
     setTaxaConfigurada(resultados[1].valorTaxaAusencia)
-    if (isAdmin) setMembros(resultados[2].filter((u: Usuario) => u.perfil === 'MEMBRO'))
+
+    if (isAdmin) {
+      setMembros(
+        resultados[2].filter((u: Usuario) => u.perfil === 'MEMBRO')
+      )
+    }
+
     setCarregando(false)
   }
 
   useEffect(() => {
-    carregar()
+    carregarBase()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
+  }, [])
 
-  function statusDe(usuarioId: number) {
-    return presencas.find((p) => p.usuarioId === usuarioId) || null
+  async function carregarPresencasDaData(data: string) {
+    setCarregandoPresenca(true)
+    const lista = await listarPresencas(data)
+    setPresencasPorData((atual) => ({ ...atual, [data]: lista }))
+    setCarregandoPresenca(false)
   }
 
-  async function handleMarcar(usuarioId: number, presente: boolean) {
+  async function toggleAberto(data: string) {
+    if (aberto === data) {
+      setAberto(null)
+      return
+    }
+
+    setAberto(data)
+    setMinhaJustificativa('')
+    setErroJustificativa('')
+
+    if (!presencasPorData[data]) {
+      await carregarPresencasDaData(data)
+    }
+  }
+
+  function statusDe(data: string, usuarioId: number) {
+    return (
+      (presencasPorData[data] || []).find(
+        (p) => p.usuarioId === usuarioId
+      ) || null
+    )
+  }
+
+  async function handleMarcar(
+    data: string,
+    usuarioId: number,
+    presente: boolean
+  ) {
     await marcarPresenca(usuarioId, data, presente)
-    carregar()
+    carregarPresencasDaData(data)
   }
 
-  async function handleTaxaPaga(id: number, pagaAtual: boolean) {
+  async function handleTaxaPaga(
+    data: string,
+    id: number,
+    pagaAtual: boolean
+  ) {
     await marcarTaxaPaga(id, !pagaAtual)
-    carregar()
+    carregarPresencasDaData(data)
   }
 
-  async function handleJustificar(e: React.FormEvent) {
+  async function handleJustificar(
+    e: React.FormEvent,
+    data: string
+  ) {
     e.preventDefault()
+
     if (!minhaJustificativa.trim()) return
+
     setEnviandoJustificativa(true)
     setErroJustificativa('')
+
     try {
       await justificarAusencia(data, minhaJustificativa)
       setMinhaJustificativa('')
-      carregar()
+      carregarPresencasDaData(data)
     } catch (err: any) {
-      setErroJustificativa(err?.response?.data?.mensagem || 'Não foi possível enviar a justificativa.')
+      setErroJustificativa(
+        err?.response?.data?.mensagem ||
+          'Não foi possível enviar a justificativa.'
+      )
     } finally {
       setEnviandoJustificativa(false)
     }
   }
 
-  const minhaPresenca = usuario ? presencas.find((p) => p.usuarioId === usuario.id) : null
+  const hoje = hojeISO()
 
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-4 pb-24 lg:pb-6">
-      <h1 className="text-xl font-bold text-slate-800">✅ Presença</h1>
-
-      <Card className="max-w-xs">
-        <label className="text-xs text-slate-500">Data</label>
-        <input
-          type="date"
-          value={data}
-          onChange={(e) => setData(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-        />
-      </Card>
+      <h1 className="text-xl font-bold text-slate-800">
+        ✅ Presença
+      </h1>
 
       {carregando ? (
         <p className="text-slate-400 text-sm">Carregando...</p>
-      ) : isAdmin ? (
+      ) : dias.length === 0 ? (
+        <Card>
+          <p className="text-slate-400 text-sm text-center py-6">
+            Nenhuma data de venda marcada no calendário ainda.
+          </p>
+        </Card>
+      ) : (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Lista de presença</p>
-          {membros.length === 0 ? (
-            <Card><p className="text-slate-400 text-sm text-center py-4">Nenhum membro cadastrado.</p></Card>
-          ) : (
-            membros.map((m) => {
-              const p = statusDe(m.id)
-              return (
-                <Card key={m.id}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold text-slate-800">{m.nome}</p>
-                      {p?.justificativa && (
-                        <p className="text-xs text-slate-500 mt-0.5">💬 "{p.justificativa}"</p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleMarcar(m.id, true)}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-                          p?.presente === true ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        Presente
-                      </button>
-                      <button
-                        onClick={() => handleMarcar(m.id, false)}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-                          p?.presente === false ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        Ausente
-                      </button>
-                    </div>
+          {dias.map((d, index) => {
+            const estaAberto = aberto === d.data
+            const presencasDoDia = presencasPorData[d.data]
+
+            const minhaPresenca = usuario
+              ? presencasDoDia?.find(
+                  (p) => p.usuarioId === usuario.id
+                )
+              : null
+
+            const dataPassou = d.data < hoje
+            const ehHoje = d.data === hoje
+            const ehProxima = index === 0 && !ehHoje
+
+            return (
+              <Card
+                key={d.id}
+                className="overflow-hidden !p-0"
+              >
+                <button
+                  onClick={() => toggleAberto(d.data)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-800">
+                      💧 Venda de água {formatarDataCurta(d.data)}
+                    </span>
+
+                    {ehHoje && (
+                      <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-semibold">
+                        Hoje
+                      </span>
+                    )}
+
+                    {ehProxima && (
+                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">
+                        Próxima
+                      </span>
+                    )}
                   </div>
 
-                  {p?.presente === false && p.taxaValor != null && (
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                      <span className="text-xs text-slate-500">
-                        Taxa: <span className="font-semibold text-slate-700">{formatarMoeda(p.taxaValor)}</span>
-                      </span>
-                      <button
-                        onClick={() => handleTaxaPaga(p.id, p.taxaPaga)}
-                        className={`text-xs font-semibold px-3 py-1 rounded-lg ${
-                          p.taxaPaga ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        {p.taxaPaga ? '✓ Paga' : 'Marcar como paga'}
-                      </button>
-                    </div>
-                  )}
-                </Card>
-              )
-            })
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {minhaPresenca && (
-            <Card>
-              <p className="text-sm font-semibold text-slate-700">Seu status nessa data</p>
-              <p className="text-sm text-slate-600 mt-1">
-                {minhaPresenca.presente === true && '✅ Marcado como presente'}
-                {minhaPresenca.presente === false && '❌ Marcado como ausente'}
-                {minhaPresenca.presente === null && 'Ainda não marcado pelo admin'}
-              </p>
-              {minhaPresenca.justificativa && (
-                <p className="text-xs text-slate-500 mt-1">💬 Sua justificativa: "{minhaPresenca.justificativa}"</p>
-              )}
-              {minhaPresenca.presente === false && minhaPresenca.taxaValor != null && (
-                <p className="text-xs text-slate-500 mt-1">
-                  Taxa: {formatarMoeda(minhaPresenca.taxaValor)} — {minhaPresenca.taxaPaga ? 'já paga ✓' : 'pendente'}
-                </p>
-              )}
-            </Card>
-          )}
-
-          <Card>
-            <p className="text-sm font-semibold text-slate-700 mb-1">Justificar ausência</p>
-            {data < hojeISO() ? (
-              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                ⚠️ Essa data já passou — não é mais possível justificar. Fale com o administrador se precisar corrigir algo.
-              </p>
-            ) : (
-              <>
-                <p className="text-xs text-slate-500 mb-3">
-                  Se você não vai poder ir nessa data, escreva o motivo com antecedência (a justificativa precisa ser enviada
-                  antes do dia da venda).
-                  {taxaConfigurada > 0 && ` Faltas têm uma taxa de ${formatarMoeda(taxaConfigurada)}.`}
-                </p>
-                <form onSubmit={handleJustificar} className="space-y-3">
-                  <textarea
-                    required
-                    placeholder="Explique o motivo..."
-                    value={minhaJustificativa}
-                    onChange={(e) => setMinhaJustificativa(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm resize-none"
-                  />
-                  {erroJustificativa && <p className="text-xs text-red-500">{erroJustificativa}</p>}
-                  <button
-                    type="submit"
-                    disabled={enviandoJustificativa}
-                    className="w-full bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white font-semibold rounded-lg py-2 text-sm"
-                  >
-                    {enviandoJustificativa ? 'Enviando...' : 'Enviar justificativa'}
-                  </button>
-                </form>
-              </>
-            )}
-          </Card>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-500 uppercase">Presenças marcadas até agora</p>
-            {presencas.length === 0 ? (
-              <Card><p className="text-slate-400 text-sm text-center py-4">Ninguém marcado ainda nessa data.</p></Card>
-            ) : (
-              presencas.map((p) => (
-                <Card key={p.id} className="flex items-center justify-between">
-                  <span className="font-medium text-slate-800">{p.usuarioNome}</span>
-                  <span className={`text-xs font-semibold ${p.presente ? 'text-green-600' : 'text-red-500'}`}>
-                    {p.presente === true ? 'Presente' : p.presente === false ? 'Ausente' : '—'}
+                  <span className="text-slate-400 text-sm">
+                    {estaAberto ? '▲' : '▼'}
                   </span>
-                </Card>
-              ))
-            )}
-          </div>
+                </button>
+
+                {estaAberto && (
+                  <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-4">
+                    {carregandoPresenca && !presencasDoDia ? (
+                      <p className="text-xs text-slate-400">
+                        Carregando...
+                      </p>
+                    ) : isAdmin ? (
+                      <div className="space-y-2">
+                        {membros.length === 0 ? (
+                          <p className="text-xs text-slate-400">
+                            Nenhum membro cadastrado.
+                          </p>
+                        ) : (
+                          membros.map((m) => {
+                            const p = statusDe(d.data, m.id)
+
+                            return (
+                              <div
+                                key={m.id}
+                                className="bg-slate-50 rounded-lg px-3 py-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-slate-800 text-sm truncate">
+                                      {m.nome}
+                                    </p>
+
+                                    {p?.justificativa && (
+                                      <p className="text-xs text-slate-500 mt-0.5 truncate">
+                                        💬 "{p.justificativa}"
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  <div className="flex gap-1.5 shrink-0">
+                                    <button
+                                      onClick={() =>
+                                        handleMarcar(
+                                          d.data,
+                                          m.id,
+                                          true
+                                        )
+                                      }
+                                      className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
+                                        p?.presente === true
+                                          ? 'bg-green-600 text-white'
+                                          : 'bg-white text-slate-500 border border-slate-200'
+                                      }`}
+                                    >
+                                      Presente
+                                    </button>
+
+                                    <button
+                                      onClick={() =>
+                                        handleMarcar(
+                                          d.data,
+                                          m.id,
+                                          false
+                                        )
+                                      }
+                                      className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
+                                        p?.presente === false
+                                          ? 'bg-red-500 text-white'
+                                          : 'bg-white text-slate-500 border border-slate-200'
+                                      }`}
+                                    >
+                                      Ausente
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {p?.presente === false &&
+                                  p.taxaValor != null && (
+                                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
+                                      <span className="text-xs text-slate-500">
+                                        Taxa:{' '}
+                                        <span className="font-semibold text-slate-700">
+                                          {formatarMoeda(
+                                            p.taxaValor
+                                          )}
+                                        </span>
+                                      </span>
+
+                                      <button
+                                        onClick={() =>
+                                          handleTaxaPaga(
+                                            d.data,
+                                            p.id,
+                                            p.taxaPaga
+                                          )
+                                        }
+                                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${
+                                          p.taxaPaga
+                                            ? 'bg-green-100 text-green-700'
+                                            : 'bg-amber-100 text-amber-700'
+                                        }`}
+                                      >
+                                        {p.taxaPaga
+                                          ? '✓ Paga'
+                                          : 'Marcar como paga'}
+                                      </button>
+                                    </div>
+                                  )}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {minhaPresenca && (
+                          <div className="bg-slate-50 rounded-lg px-3 py-2">
+                            <p className="text-xs font-semibold text-slate-700">
+                              Seu status nessa data
+                            </p>
+
+                            <p className="text-sm text-slate-600 mt-0.5">
+                              {minhaPresenca.presente === true &&
+                                '✅ Marcado como presente'}
+
+                              {minhaPresenca.presente === false &&
+                                '❌ Marcado como ausente'}
+
+                              {minhaPresenca.presente === null &&
+                                'Ainda não marcado pelo admin'}
+                            </p>
+
+                            {minhaPresenca.justificativa && (
+                              <p className="text-xs text-slate-500 mt-1">
+                                💬 Sua justificativa: "
+                                {minhaPresenca.justificativa}"
+                              </p>
+                            )}
+
+                            {minhaPresenca.presente === false &&
+                              minhaPresenca.taxaValor != null && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Taxa:{' '}
+                                  {formatarMoeda(
+                                    minhaPresenca.taxaValor
+                                  )}{' '}
+                                  —{' '}
+                                  {minhaPresenca.taxaPaga
+                                    ? 'já paga ✓'
+                                    : 'pendente'}
+                                </p>
+                              )}
+                          </div>
+                        )}
+
+                        <div>
+                          <p className="text-xs font-semibold text-slate-700 mb-1">
+                            Justificar ausência
+                          </p>
+
+                          {dataPassou ? (
+                            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                              ⚠️ Essa data já passou — não é mais
+                              possível justificar. Fale com o
+                              administrador se precisar corrigir algo.
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-xs text-slate-500 mb-2">
+                                Se você não vai poder ir, escreva o
+                                motivo com antecedência.
+                                {taxaConfigurada > 0 &&
+                                  ` Faltas têm uma taxa de ${formatarMoeda(
+                                    taxaConfigurada
+                                  )}.`}
+                              </p>
+
+                              <form
+                                onSubmit={(e) =>
+                                  handleJustificar(e, d.data)
+                                }
+                                className="space-y-2"
+                              >
+                                <textarea
+                                  required
+                                  placeholder="Explique o motivo..."
+                                  value={minhaJustificativa}
+                                  onChange={(e) =>
+                                    setMinhaJustificativa(
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm resize-none"
+                                />
+
+                                {erroJustificativa && (
+                                  <p className="text-xs text-red-500">
+                                    {erroJustificativa}
+                                  </p>
+                                )}
+
+                                <button
+                                  type="submit"
+                                  disabled={enviandoJustificativa}
+                                  className="w-full bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white font-semibold rounded-lg py-2 text-sm"
+                                >
+                                  {enviandoJustificativa
+                                    ? 'Enviando...'
+                                    : 'Enviar justificativa'}
+                                </button>
+                              </form>
+                            </>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-semibold text-slate-500 uppercase mb-1.5">
+                            Presenças marcadas até agora
+                          </p>
+
+                          {!presencasDoDia ||
+                          presencasDoDia.length === 0 ? (
+                            <p className="text-xs text-slate-400">
+                              Ninguém marcado ainda nessa data.
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {presencasDoDia.map((p) => (
+                                <div
+                                  key={p.id}
+                                  className="flex items-center justify-between text-sm"
+                                >
+                                  <span className="text-slate-700">
+                                    {p.usuarioNome}
+                                  </span>
+
+                                  <span
+                                    className={`text-xs font-semibold ${
+                                      p.presente
+                                        ? 'text-green-600'
+                                        : 'text-red-500'
+                                    }`}
+                                  >
+                                    {p.presente === true
+                                      ? 'Presente'
+                                      : p.presente === false
+                                        ? 'Ausente'
+                                        : '—'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            )
+          })}
         </div>
       )}
     </div>

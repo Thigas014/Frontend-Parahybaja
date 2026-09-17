@@ -21,7 +21,8 @@ function hojeISO() {
   return `${ano}-${mes}-${dia}`
 }
 
-
+// Cada campo agora guarda a QUANTIDADE de notas/moedas daquela denominação,
+// não o valor já calculado. O valor de cada denominação é sempre
 // quantidade × valorDaDenominacao.
 const vazioQuantidades = {
   notas2: '', notas5: '', notas10: '', notas20: '', notas50: '',

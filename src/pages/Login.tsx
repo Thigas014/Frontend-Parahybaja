@@ -28,9 +28,7 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-primary-50 to-white px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <img src="/logo.png" alt="Equipe Parahy Baja 4x4" className="h-24 w-auto mx-auto mb-3" />
-          
-          
+          <img src="/logo.png" alt="Equipe Parahy Baja 4x4" className="h-24 w-auto mx-auto mb-3" />          
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 space-y-4">
