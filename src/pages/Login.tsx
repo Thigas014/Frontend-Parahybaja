@@ -7,6 +7,7 @@ export function Login() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [mostrarSenha, setMostrarSenha] = useState(false)
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
 
@@ -45,14 +46,23 @@ export function Login() {
           </div>
           <div>
             <label className="text-sm font-medium text-slate-600">Senha</label>
-            <input
-              type="password"
-              required
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary-400"
-              placeholder="••••••••"
-            />
+            <div className="relative mt-1">
+              <input
+                type={mostrarSenha ? 'text' : 'password'}
+                required
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 pr-11 focus:outline-none focus:ring-2 focus:ring-primary-400"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarSenha((v) => !v)}
+                className="absolute right-0 top-0 h-full px-3 text-slate-400 hover:text-slate-600 text-xs font-semibold"
+              >
+                {mostrarSenha ? 'Ocultar' : 'Mostrar'}
+              </button>
+            </div>
           </div>
 
           {erro && <p className="text-sm text-red-500">{erro}</p>}
