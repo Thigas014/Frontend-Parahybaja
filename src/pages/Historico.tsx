@@ -25,9 +25,9 @@ const nomesMeses = [
 type Visao = 'semana' | 'mes'
 
 function rotuloPresenca(p: Presenca) {
-  if (p.presente === true) return { texto: 'Presente', cor: 'text-green-600' }
-  if (p.presente === false && p.justificativa) return { texto: 'Justificou ausência', cor: 'text-amber-600' }
-  if (p.presente === false) return { texto: 'Faltou (sem justificativa)', cor: 'text-red-500' }
+  if (p.status === 'PRESENTE') return { texto: 'Presente', cor: 'text-green-600' }
+  if (p.status === 'JUSTIFICADO') return { texto: 'Justificado', cor: 'text-amber-600' }
+  if (p.status === 'AUSENTE') return { texto: 'Ausente (sem justificativa)', cor: 'text-red-500' }
   return { texto: 'Pendente', cor: 'text-slate-400' }
 }
 

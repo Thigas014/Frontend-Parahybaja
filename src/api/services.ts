@@ -6,6 +6,7 @@ import type {
   DiaDeVenda,
   Despesa,
   Presenca,
+  StatusPresenca,
   Usuario,
   Venda
 } from '../types'
@@ -88,8 +89,8 @@ export async function atualizarMeta(metaFinanceira: number) {
   return data
 }
 
-export async function atualizarTaxaAusencia(valorTaxaAusencia: number) {
-  const { data } = await api.put<Configuracao>('/configuracao/taxa-ausencia', { valorTaxaAusencia })
+export async function atualizarTaxas(valorTaxaJustificado: number, valorTaxaSemJustificativa: number) {
+  const { data } = await api.put<Configuracao>('/configuracao/taxas', { valorTaxaJustificado, valorTaxaSemJustificativa })
   return data
 }
 
@@ -134,8 +135,8 @@ export async function justificarAusencia(data: string, justificativa: string) {
   return resp
 }
 
-export async function marcarPresenca(usuarioId: number, data: string, presente: boolean) {
-  const { data: resp } = await api.post<Presenca>('/presencas/marcar', { usuarioId, data, presente })
+export async function marcarPresenca(usuarioId: number, data: string, status: StatusPresenca) {
+  const { data: resp } = await api.post<Presenca>('/presencas/marcar', { usuarioId, data, status })
   return resp
 }
 

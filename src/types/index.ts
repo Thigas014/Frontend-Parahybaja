@@ -50,12 +50,14 @@ export interface Despesa {
   dataHora: string
 }
 
+export type StatusPresenca = 'PRESENTE' | 'JUSTIFICADO' | 'AUSENTE'
+
 export interface Presenca {
   id: number
   data: string
   usuarioId: number
   usuarioNome: string
-  presente: boolean | null
+  status: StatusPresenca | null
   justificativa: string | null
   taxaValor: number | null
   taxaPaga: boolean
@@ -85,5 +87,6 @@ export interface Dashboard {
 export interface Configuracao {
   id: number
   metaFinanceira: number
-  valorTaxaAusencia: number
+  valorTaxaJustificado: number
+  valorTaxaSemJustificativa: number
 }

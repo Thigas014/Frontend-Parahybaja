@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   atualizarMeta,
-  atualizarTaxaAusencia,
+  atualizarTaxas,
   criarAporte,
   criarDespesa,
   excluirAporte,
@@ -25,7 +25,8 @@ function formatarData(iso: string) {
 
 export function Meta() {
   const [meta, setMeta] = useState('')
-  const [taxa, setTaxa] = useState('')
+  const [taxaJustificado, setTaxaJustificado] = useState('')
+  const [taxaSemJustificativa, setTaxaSemJustificativa] = useState('')
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [aportes, setAportes] = useState<Aporte[]>([])
   const [despesas, setDespesas] = useState<Despesa[]>([])
@@ -50,7 +51,8 @@ export function Meta() {
       listarDespesas()
     ])
     setMeta(String(config.metaFinanceira))
-    setTaxa(String(config.valorTaxaAusencia))
+    setTaxaJustificado(String(config.valorTaxaJustificado))
+    setTaxaSemJustificativa(String(config.valorTaxaSemJustificativa))
     setDashboard(dash)
     setAportes(listaAportes)
     setDespesas(listaDespesas)
@@ -74,8 +76,8 @@ export function Meta() {
     e.preventDefault()
     setSalvandoTaxa(true)
     setMensagemTaxa('')
-    await atualizarTaxaAusencia(Number(taxa))
-    setMensagemTaxa('Taxa atualizada com sucesso!')
+    await atualizarTaxas(Number(taxaJustificado), Number(taxaSemJustificativa))
+    setMensagemTaxa('Taxas atualizadas com sucesso!')
     setSalvandoTaxa(false)
     carregar()
   }
@@ -177,17 +179,30 @@ export function Meta() {
           <Card>
             <form onSubmit={salvarTaxa} className="space-y-3">
               <div>
-                <label className="text-sm font-medium text-slate-600">Taxa de ausência (R$)</label>
+                <label className="text-sm font-medium text-slate-600">Taxa — falta justificada (R$)</label>
                 <input
                   type="number"
                   step="0.01"
                   min={0}
                   required
-                  value={taxa}
-                  onChange={(e) => setTaxa(e.target.value)}
+                  value={taxaJustificado}
+                  onChange={(e) => setTaxaJustificado(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary-400"
                 />
-                <p className="text-xs text-slate-400 mt-1">Cobrada de quem for marcado ausente (aba Presença).</p>
+                <p className="text-xs text-slate-400 mt-1">Quando o admin aceita a justificativa do membro.</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-600">Taxa — falta sem justificativa (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  required
+                  value={taxaSemJustificativa}
+                  onChange={(e) => setTaxaSemJustificativa(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary-400"
+                />
+                <p className="text-xs text-slate-400 mt-1">Quando o admin marca ausente sem aceitar justificativa.</p>
               </div>
               {mensagemTaxa && <p className="text-sm text-green-600">{mensagemTaxa}</p>}
               <button
@@ -195,7 +210,7 @@ export function Meta() {
                 disabled={salvandoTaxa}
                 className="w-full bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white font-semibold rounded-xl py-2.5"
               >
-                {salvandoTaxa ? 'Salvando...' : 'Salvar taxa'}
+                {salvandoTaxa ? 'Salvando...' : 'Salvar taxas'}
               </button>
             </form>
           </Card>
