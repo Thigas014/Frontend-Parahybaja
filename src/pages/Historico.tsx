@@ -327,6 +327,16 @@ export function Historico() {
                             </span>
                           </div>
 
+                          <div>
+                            <span className="text-slate-500">
+                              Gastos
+                            </span>
+
+                            <span className="font-medium text-slate-700">
+                              {/* Programar para colocar gastos aqui */}
+                            </span>
+                          </div>
+
                           <div className="flex justify-between pt-1 border-t border-slate-200 font-semibold">
                             <span className="text-slate-700">
                               Total
@@ -334,6 +344,17 @@ export function Historico() {
 
                             <span className="text-primary-600">
                               {formatarMoeda(venda.valorTotal)}
+                            </span>
+                          </div>
+
+                                {/* Total Líquido */}
+                          <div>
+                            <span className="text-slate-700">
+                              Total Líquido
+                            </span>
+
+                            <span className="font-medium text-slate-600">
+                              {/* Programar para colocar total líquido aqui */}
                             </span>
                           </div>
                         </div>
