@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { listarDiasDeVenda, listarPresencas, listarVendas } from '../api/services'
-import type { DiaDeVenda, Presenca, Venda } from '../types'
+import { listarDespesas, listarDiasDeVenda, listarPresencas, listarVendas } from '../api/services'
+import type { DiaDeVenda, Despesa, Presenca, Venda } from '../types'
 import { Card } from '../components/Card'
 
 function formatarMoeda(valor: number) {
@@ -15,6 +15,11 @@ function formatarData(iso: string) {
 function formatarDataCurta(iso: string) {
   const [, mes, dia] = iso.split('-')
   return `${dia}/${mes}`
+}
+
+/** Extrai a parte de data (yyyy-MM-dd) de um dataHora ISO (ex: "2026-09-19T12:00:00"). */
+function dataDeDataHora(dataHora: string) {
+  return dataHora.split('T')[0]
 }
 
 function hojeISO() {
@@ -48,6 +53,7 @@ function ordenarDatas(a: string, b: string, hoje: string) {
 export function Historico() {
   const [vendas, setVendas] = useState<Venda[]>([])
   const [dias, setDias] = useState<DiaDeVenda[]>([])
+  const [despesas, setDespesas] = useState<Despesa[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [visao, setVisao] = useState<Visao>('semana')
@@ -60,9 +66,14 @@ export function Historico() {
     setCarregando(true)
     setErro('')
     try {
-      const [listaVendas, listaDias] = await Promise.all([listarVendas(), listarDiasDeVenda()])
+      const [listaVendas, listaDias, listaDespesas] = await Promise.all([
+        listarVendas(),
+        listarDiasDeVenda(),
+        listarDespesas()
+      ])
       setVendas(listaVendas)
       setDias(listaDias)
+      setDespesas(listaDespesas)
     } catch (err: any) {
       setErro(err?.response?.data?.mensagem || 'Não foi possível carregar o histórico.')
     } finally {
@@ -92,15 +103,22 @@ export function Historico() {
     return vendas.find((v) => v.data === data) || null
   }
 
-  // Junta as datas marcadas no calendário COM as datas que têm fechamento
-  // registrado, mesmo que essas duas listas não coincidam totalmente — assim
-  // um fechamento lançado fora de uma data marcada no calendário continua
-  // aparecendo no histórico.
+  function despesasDaData(data: string) {
+    return despesas.filter((d) => dataDeDataHora(d.dataHora) === data)
+  }
+
+  // Junta as datas marcadas no calendário, as datas com fechamento e as datas
+  // com gasto de reposição lançado — mesmo que essas listas não coincidam
+  // totalmente, assim nada fica de fora do histórico.
   const datasCombinadas = useMemo(() => {
     const hoje = hojeISO()
-    const conjunto = new Set<string>([...dias.map((d) => d.data), ...vendas.map((v) => v.data)])
+    const conjunto = new Set<string>([
+      ...dias.map((d) => d.data),
+      ...vendas.map((v) => v.data),
+      ...despesas.map((d) => dataDeDataHora(d.dataHora))
+    ])
     return Array.from(conjunto).sort((a, b) => ordenarDatas(a, b, hoje))
-  }, [dias, vendas])
+  }, [dias, vendas, despesas])
 
   const porMes = useMemo(() => {
     const grupos = new Map<string, { label: string; total: number; datas: string[] }>()
@@ -186,6 +204,8 @@ export function Historico() {
         <div className="space-y-2">
           {datasCombinadas.map((data, index) => {
             const venda = vendaDaData(data)
+            const gastosDoDia = despesasDaData(data)
+            const totalGastosDoDia = gastosDoDia.reduce((soma, d) => soma + d.valor, 0)
             const estaNoCalendario = dias.some((d) => d.data === data)
             const estaAberto = aberto === data
             const presencasDoDia = presencasPorData[data]
@@ -238,6 +258,24 @@ export function Historico() {
                         <p className="text-xs text-slate-400">Nenhum fechamento registrado para essa data ainda.</p>
                       )}
                     </div>
+
+                    {/* Gastos de reposição */}
+                    {gastosDoDia.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-slate-500 uppercase">Gastos de reposição</p>
+                          <span className="text-xs font-semibold text-red-500">− {formatarMoeda(totalGastosDoDia)}</span>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg px-3 py-2 space-y-1.5">
+                          {gastosDoDia.map((d) => (
+                            <div key={d.id} className="flex justify-between text-sm">
+                              <span className="text-slate-600">{d.descricao}</span>
+                              <span className="font-medium text-red-500">− {formatarMoeda(d.valor)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Lista de presença */}
                     <div>

@@ -15,6 +15,7 @@ export function Login() {
     e.preventDefault()
     setErro('')
     setCarregando(true)
+
     try {
       await login(email, senha)
       navigate('/')

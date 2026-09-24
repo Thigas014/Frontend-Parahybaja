@@ -31,7 +31,6 @@ npm -version
 ```bash
 git clone <url-deste-repositorio>
 cd <pasta-do-repositorio>
-cd frontend
 npm install
 ```
 

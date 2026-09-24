@@ -115,9 +115,9 @@ export async function listarDespesas() {
   return data
 }
 
-export async function criarDespesa(descricao: string, valor: number) {
-  const { data } = await api.post<Despesa>('/despesas', { descricao, valor })
-  return data
+export async function criarDespesa(descricao: string, valor: number, data?: string) {
+  const { data: resp } = await api.post<Despesa>('/despesas', { descricao, valor, data })
+  return resp
 }
 
 export async function excluirDespesa(id: number) {

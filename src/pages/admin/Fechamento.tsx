@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'react'
-import { atualizarFechamento, excluirFechamento, listarVendas, registrarFechamento } from '../../api/services'
+import {
+  atualizarFechamento,
+  criarAporte,
+  criarDespesa,
+  excluirAporte,
+  excluirDespesa,
+  excluirFechamento,
+  listarAportes,
+  listarDespesas,
+  listarVendas,
+  registrarFechamento
+} from '../../api/services'
 import type { FechamentoPayload } from '../../api/services'
-import type { Venda } from '../../types'
+import type { Aporte, Despesa, Venda } from '../../types'
 import { Card } from '../../components/Card'
 
 function formatarMoeda(valor: number) {
@@ -11,6 +22,10 @@ function formatarMoeda(valor: number) {
 function formatarData(iso: string) {
   const [ano, mes, dia] = iso.split('-')
   return `${dia}/${mes}/${ano}`
+}
+
+function formatarDataHora(iso: string) {
+  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function hojeISO() {
@@ -52,6 +67,8 @@ const moedasCampos: { chave: keyof typeof vazioQuantidades; label: string }[] = 
 
 const vazio = { data: hojeISO(), ...vazioQuantidades, valorPix: '' }
 
+type GastoLinha = { descricao: string; valor: string }
+
 function numero(v: string) {
   return Number(v) || 0
 }
@@ -65,14 +82,32 @@ function valorParaQuantidade(valor: number, denominacao: number) {
 
 export function Fechamento() {
   const [vendas, setVendas] = useState<Venda[]>([])
+  const [aportes, setAportes] = useState<Aporte[]>([])
+  const [despesas, setDespesas] = useState<Despesa[]>([])
   const [form, setForm] = useState(vazio)
+  const [gastos, setGastos] = useState<GastoLinha[]>([])
   const [editandoId, setEditandoId] = useState<number | null>(null)
   const [mostrarForm, setMostrarForm] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
 
+  const [descricaoAporte, setDescricaoAporte] = useState('')
+  const [valorAporte, setValorAporte] = useState('')
+  const [enviandoAporte, setEnviandoAporte] = useState(false)
+
+  const [descricaoGastoAvulso, setDescricaoGastoAvulso] = useState('')
+  const [valorGastoAvulso, setValorGastoAvulso] = useState('')
+  const [enviandoGastoAvulso, setEnviandoGastoAvulso] = useState(false)
+
   async function carregar() {
-    setVendas(await listarVendas())
+    const [listaVendas, listaAportes, listaDespesas] = await Promise.all([
+      listarVendas(),
+      listarAportes(),
+      listarDespesas()
+    ])
+    setVendas(listaVendas)
+    setAportes(listaAportes)
+    setDespesas(listaDespesas)
   }
 
   useEffect(() => {
@@ -82,6 +117,7 @@ export function Fechamento() {
   function novoFechamento() {
     setEditandoId(null)
     setForm({ ...vazio, data: hojeISO() })
+    setGastos([])
     setMostrarForm(true)
     setMensagem(null)
   }
@@ -102,6 +138,7 @@ export function Fechamento() {
       moedas005: valorParaQuantidade(v.moedas005, 0.05),
       valorPix: String(v.valorPix)
     })
+    setGastos([])
     setMostrarForm(true)
     setMensagem(null)
   }
@@ -110,10 +147,23 @@ export function Fechamento() {
     return numero(form[chave]) * DENOMINACOES[chave]
   }
 
+  function adicionarGasto() {
+    setGastos((atual) => [...atual, { descricao: '', valor: '' }])
+  }
+
+  function atualizarGasto(index: number, campo: keyof GastoLinha, valor: string) {
+    setGastos((atual) => atual.map((g, i) => (i === index ? { ...g, [campo]: valor } : g)))
+  }
+
+  function removerGasto(index: number) {
+    setGastos((atual) => atual.filter((_, i) => i !== index))
+  }
+
   const totalNotas = notasCampos.reduce((soma, c) => soma + subtotal(c.chave), 0)
   const totalMoedas = moedasCampos.reduce((soma, c) => soma + subtotal(c.chave), 0)
   const totalPix = numero(form.valorPix)
   const valorTotal = totalNotas + totalMoedas + totalPix
+  const totalGastos = gastos.reduce((soma, g) => soma + numero(g.valor), 0)
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -137,6 +187,13 @@ export function Fechamento() {
       } else {
         await registrarFechamento(payload)
       }
+
+      // Lança cada gasto preenchido, já datado com o mesmo dia do fechamento.
+      const gastosValidos = gastos.filter((g) => g.descricao.trim() && numero(g.valor) > 0)
+      for (const g of gastosValidos) {
+        await criarDespesa(g.descricao.trim(), numero(g.valor), form.data)
+      }
+
       setMensagem({ tipo: 'sucesso', texto: 'Fechamento salvo com sucesso!' })
       setMostrarForm(false)
       carregar()
@@ -150,6 +207,40 @@ export function Fechamento() {
   async function excluir(id: number) {
     if (!confirm('Excluir este fechamento?')) return
     await excluirFechamento(id)
+    carregar()
+  }
+
+  async function handleCriarAporte(e: React.FormEvent) {
+    e.preventDefault()
+    if (!descricaoAporte || !valorAporte) return
+    setEnviandoAporte(true)
+    await criarAporte(descricaoAporte, Number(valorAporte))
+    setDescricaoAporte('')
+    setValorAporte('')
+    setEnviandoAporte(false)
+    carregar()
+  }
+
+  async function handleExcluirAporte(id: number) {
+    if (!confirm('Excluir este aporte? Ele deixará de contar na meta.')) return
+    await excluirAporte(id)
+    carregar()
+  }
+
+  async function handleCriarGastoAvulso(e: React.FormEvent) {
+    e.preventDefault()
+    if (!descricaoGastoAvulso || !valorGastoAvulso) return
+    setEnviandoGastoAvulso(true)
+    await criarDespesa(descricaoGastoAvulso, Number(valorGastoAvulso))
+    setDescricaoGastoAvulso('')
+    setValorGastoAvulso('')
+    setEnviandoGastoAvulso(false)
+    carregar()
+  }
+
+  async function handleExcluirDespesa(id: number) {
+    if (!confirm('Excluir este gasto? Ele deixará de ser descontado no modo Líquido.')) return
+    await excluirDespesa(id)
     carregar()
   }
 
@@ -242,8 +333,55 @@ export function Fechamento() {
             </div>
 
             <div className="bg-primary-50 rounded-xl px-4 py-3 flex justify-between items-center">
-              <span className="text-sm text-primary-700">Rendimento total</span>
+              <span className="text-sm text-primary-700">Valor bruto</span>
               <span className="text-lg font-bold text-primary-700">{formatarMoeda(valorTotal)}</span>
+            </div>
+
+            {/* Gastos de reposição do mesmo dia */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-xs font-semibold text-slate-600 uppercase">Gastos de reposição (opcional)</p>
+                {totalGastos > 0 && <span className="text-xs font-semibold text-red-500">− {formatarMoeda(totalGastos)}</span>}
+              </div>
+
+              {gastos.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  {gastos.map((g, index) => (
+                    <div key={index} className="flex gap-2 items-start">
+                      <input
+                        placeholder="Descrição (ex: Água, Gelo...)"
+                        value={g.descricao}
+                        onChange={(e) => atualizarGasto(index, 'descricao', e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        placeholder="0,00"
+                        value={g.valor}
+                        onChange={(e) => atualizarGasto(index, 'valor', e.target.value)}
+                        className="w-24 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removerGasto(index)}
+                        className="text-slate-400 hover:text-red-500 px-1 py-1.5 text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={adicionarGasto}
+                className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+              >
+                + Adicionar gasto
+              </button>
             </div>
 
             {mensagem && (
@@ -290,6 +428,114 @@ export function Fechamento() {
             </div>
           </Card>
         ))}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4 items-start pt-2">
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-slate-700">🎁 Aportes / doações</h3>
+          <Card>
+            <form onSubmit={handleCriarAporte} className="space-y-3">
+              <input
+                required
+                placeholder="Descrição (ex: Doação da Padaria Central)"
+                value={descricaoAporte}
+                onChange={(e) => setDescricaoAporte(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <input
+                required
+                type="number"
+                step="0.01"
+                min={0.01}
+                placeholder="Valor (R$)"
+                value={valorAporte}
+                onChange={(e) => setValorAporte(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={enviandoAporte}
+                className="w-full bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white font-semibold rounded-lg py-2 text-sm"
+              >
+                {enviandoAporte ? 'Lançando...' : 'Lançar aporte'}
+              </button>
+            </form>
+          </Card>
+
+          {aportes.length === 0 ? (
+            <Card><p className="text-slate-400 text-sm text-center py-4">Nenhum aporte lançado ainda.</p></Card>
+          ) : (
+            aportes.map((a) => (
+              <Card key={a.id} className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-800 text-sm truncate">{a.descricao}</p>
+                  <p className="text-xs text-slate-500">
+                    {formatarDataHora(a.dataHora)} · lançado por {a.registradoPorNome}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-bold text-primary-600">{formatarMoeda(a.valor)}</span>
+                  <button onClick={() => handleExcluirAporte(a.id)} className="text-xs text-red-500 font-semibold">
+                    Excluir
+                  </button>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-slate-700">📦 Gastos de reposição</h3>
+          <Card>
+            <form onSubmit={handleCriarGastoAvulso} className="space-y-3">
+              <input
+                required
+                placeholder="Descrição (ex: Água, Gelo, Copos...)"
+                value={descricaoGastoAvulso}
+                onChange={(e) => setDescricaoGastoAvulso(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <input
+                required
+                type="number"
+                step="0.01"
+                min={0.01}
+                placeholder="Valor (R$)"
+                value={valorGastoAvulso}
+                onChange={(e) => setValorGastoAvulso(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={enviandoGastoAvulso}
+                className="w-full bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white font-semibold rounded-lg py-2 text-sm"
+              >
+                {enviandoGastoAvulso ? 'Lançando...' : 'Lançar gasto'}
+              </button>
+            </form>
+          </Card>
+
+          {despesas.length === 0 ? (
+            <Card><p className="text-slate-400 text-sm text-center py-4">Nenhum gasto lançado ainda.</p></Card>
+          ) : (
+            despesas.map((d) => (
+              <Card key={d.id} className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-800 text-sm truncate">{d.descricao}</p>
+                  <p className="text-xs text-slate-500">
+                    {formatarDataHora(d.dataHora)} · lançado por {d.registradoPorNome}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-bold text-red-500">− {formatarMoeda(d.valor)}</span>
+                  <button onClick={() => handleExcluirDespesa(d.id)} className="text-xs text-red-500 font-semibold">
+                    Excluir
+                  </button>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
       </div>
     </div>
   )
