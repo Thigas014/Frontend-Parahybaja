@@ -128,7 +128,10 @@ export function Historico() {
       const chave = `${ano}-${mes}`
       const label = `${nomesMeses[Number(mes) - 1]} de ${ano}`
       const atual = grupos.get(chave) || { label, total: 0, datas: [] }
-      atual.total += v.valorTotal
+      const gastosDessaData = despesas
+        .filter((d) => dataDeDataHora(d.dataHora) === v.data)
+        .reduce((soma, d) => soma + d.valor, 0)
+      atual.total += v.valorTotal - gastosDessaData
       atual.datas.push(v.data)
       grupos.set(chave, atual)
     }
@@ -140,7 +143,7 @@ export function Historico() {
         ...dados,
         datas: dados.datas.sort((a, b) => b.localeCompare(a))
       }))
-  }, [vendas])
+  }, [vendas, despesas])
 
   const hoje = hojeISO()
 
@@ -202,7 +205,7 @@ export function Historico() {
         <Card><p className="text-slate-400 text-sm text-center py-6">Nenhum fechamento ou data marcada ainda.</p></Card>
       ) : (
         <div className="space-y-2">
-          {datasCombinadas.map((data, index) => {
+          {datasCombinadas.map((data) => {
             const venda = vendaDaData(data)
             const gastosDoDia = despesasDaData(data)
             const totalGastosDoDia = gastosDoDia.reduce((soma, d) => soma + d.valor, 0)
@@ -210,8 +213,9 @@ export function Historico() {
             const estaAberto = aberto === data
             const presencasDoDia = presencasPorData[data]
 
+            const dataPassou = data < hoje
             const ehHoje = data === hoje
-            const ehProxima = index === 0 && !ehHoje && data >= hoje
+            const ehFutura = data > hoje
 
             return (
               <Card key={data} className="overflow-hidden !p-0">
@@ -221,11 +225,14 @@ export function Historico() {
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-slate-800">{formatarData(data)}</span>
+                    {dataPassou && (
+                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">Passou</span>
+                    )}
                     {ehHoje && (
                       <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-semibold">Hoje</span>
                     )}
-                    {ehProxima && (
-                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">Próxima</span>
+                    {ehFutura && (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">Próxima</span>
                     )}
                     {!estaNoCalendario && (
                       <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full font-semibold">
@@ -236,7 +243,7 @@ export function Historico() {
 
                   <div className="flex items-center gap-2">
                     <span className={`font-bold ${venda ? 'text-primary-600' : 'text-slate-300'}`}>
-                      {venda ? formatarMoeda(venda.valorTotal) : 'sem fechamento'}
+                      {venda ? formatarMoeda(venda.valorTotal - totalGastosDoDia) : 'sem fechamento'}
                     </span>
                     <span className="text-slate-400 text-sm">{estaAberto ? '▲' : '▼'}</span>
                   </div>

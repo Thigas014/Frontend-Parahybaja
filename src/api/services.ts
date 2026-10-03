@@ -120,6 +120,11 @@ export async function criarDespesa(descricao: string, valor: number, data?: stri
   return resp
 }
 
+export async function atualizarDespesa(id: number, descricao: string, valor: number, data?: string) {
+  const { data: resp } = await api.put<Despesa>(`/despesas/${id}`, { descricao, valor, data })
+  return resp
+}
+
 export async function excluirDespesa(id: number) {
   await api.delete(`/despesas/${id}`)
 }

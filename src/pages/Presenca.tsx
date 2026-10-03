@@ -152,13 +152,13 @@ export function Presenca() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {dias.map((d, index) => {
+          {dias.map((d) => {
             const estaAberto = aberto === d.data
             const presencasDoDia = presencasPorData[d.data]
             const minhaPresenca = usuario ? presencasDoDia?.find((p) => p.usuarioId === usuario.id) : null
             const dataPassou = d.data < hoje
             const ehHoje = d.data === hoje
-            const ehProxima = index === 0 && !ehHoje
+            const ehFutura = d.data > hoje
 
             return (
               <Card key={d.id} className="overflow-hidden !p-0">
@@ -170,13 +170,18 @@ export function Presenca() {
                     <span className="font-semibold text-slate-800">
                       💧 Venda de água {formatarDataCurta(d.data)}
                     </span>
+                    {dataPassou && (
+                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">
+                        Passou
+                      </span>
+                    )}
                     {ehHoje && (
                       <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-semibold">
                         Hoje
                       </span>
                     )}
-                    {ehProxima && (
-                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">
+                    {ehFutura && (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
                         Próxima
                       </span>
                     )}
