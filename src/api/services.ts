@@ -34,7 +34,8 @@ export async function atualizarUsuario(id: number, payload: Partial<{ nome: stri
 }
 
 export async function excluirUsuario(id: number) {
-  await api.delete(`/usuarios/${id}`)
+  const { data } = await api.delete<{ excluido: boolean }>(`/usuarios/${id}`)
+  return data
 }
 
 // ---------- Vendas (fechamento de caixa: notas + moedas por denominação + pix) ----------
@@ -140,7 +141,7 @@ export async function justificarAusencia(data: string, justificativa: string) {
   return resp
 }
 
-export async function marcarPresenca(usuarioId: number, data: string, status: StatusPresenca) {
+export async function marcarPresenca(usuarioId: number, data: string, status: StatusPresenca | null) {
   const { data: resp } = await api.post<Presenca>('/presencas/marcar', { usuarioId, data, status })
   return resp
 }

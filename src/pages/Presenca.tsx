@@ -108,7 +108,18 @@ export function Presenca() {
     return (presencasPorData[data] || []).find((p) => p.usuarioId === usuarioId) || null
   }
 
-  async function handleMarcar(data: string, usuarioId: number, status: StatusPresenca) {
+      /** Pra marcar presença, só mostra membros ativos — exceto se já tiverem algo
+   *  relevante registrado nessa data (status decidido ou justificativa escrita).
+   *  Uma linha "vazia" (sobra de desmarcar um status) não conta como relevante. */
+  function membrosParaData(data: string) {
+    return membros.filter((m) => {
+      if (m.ativo) return true
+      const p = statusDe(data, m.id)
+      return !!p && (p.status !== null || !!p.justificativa)
+    })
+  }
+  
+  async function handleMarcar(data: string, usuarioId: number, status: StatusPresenca | null) {
     await marcarPresenca(usuarioId, data, status)
     carregarPresencasDaData(data)
   }
@@ -195,10 +206,10 @@ export function Presenca() {
                       <p className="text-xs text-slate-400">Carregando...</p>
                     ) : isAdmin ? (
                       <div className="space-y-2">
-                        {membros.length === 0 ? (
+                        {membrosParaData(d.data).length === 0 ? (
                           <p className="text-xs text-slate-400">Nenhum membro cadastrado.</p>
                         ) : (
-                          membros.map((m) => {
+                          membrosParaData(d.data).map((m) => {
                             const p = statusDe(d.data, m.id)
                             return (
                               <div key={m.id} className="bg-slate-50 rounded-lg px-3 py-2">
@@ -212,7 +223,8 @@ export function Presenca() {
 
                                   <div className="flex gap-1.5 shrink-0">
                                     <button
-                                      onClick={() => handleMarcar(d.data, m.id, 'PRESENTE')}
+                                      onClick={() => handleMarcar(d.data, m.id, p?.status === 'PRESENTE' ? null : 'PRESENTE')}
+                                      title={p?.status === 'PRESENTE' ? 'Clique para desmarcar' : undefined}
                                       className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
                                         p?.status === 'PRESENTE'
                                           ? 'bg-green-600 text-white'
@@ -222,7 +234,8 @@ export function Presenca() {
                                       Presente
                                     </button>
                                     <button
-                                      onClick={() => handleMarcar(d.data, m.id, 'JUSTIFICADO')}
+                                      onClick={() => handleMarcar(d.data, m.id, p?.status === 'JUSTIFICADO' ? null : 'JUSTIFICADO')}
+                                      title={p?.status === 'JUSTIFICADO' ? 'Clique para desmarcar' : undefined}
                                       className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
                                         p?.status === 'JUSTIFICADO'
                                           ? 'bg-amber-500 text-white'
@@ -232,7 +245,8 @@ export function Presenca() {
                                       Justificado
                                     </button>
                                     <button
-                                      onClick={() => handleMarcar(d.data, m.id, 'AUSENTE')}
+                                      onClick={() => handleMarcar(d.data, m.id, p?.status === 'AUSENTE' ? null : 'AUSENTE')}
+                                      title={p?.status === 'AUSENTE' ? 'Clique para desmarcar' : undefined}
                                       className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
                                         p?.status === 'AUSENTE'
                                           ? 'bg-red-500 text-white'
@@ -326,11 +340,11 @@ export function Presenca() {
 
                         <div>
                           <p className="text-xs font-semibold text-slate-500 uppercase mb-1.5">Presenças marcadas até agora</p>
-                          {!presencasDoDia || presencasDoDia.length === 0 ? (
+                          {(presencasDoDia || []).filter((p) => p.status !== null).length === 0 ? (
                             <p className="text-xs text-slate-400">Ninguém marcado ainda nessa data.</p>
                           ) : (
                             <div className="space-y-1.5">
-                              {presencasDoDia.map((p) => {
+                              {presencasDoDia!.filter((p) => p.status !== null).map((p) => {
                                 const rotulo = rotuloStatus(p.status)
                                 return (
                                   <div key={p.id} className="flex items-center justify-between text-sm">

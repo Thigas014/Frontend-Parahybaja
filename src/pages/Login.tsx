@@ -19,8 +19,8 @@ export function Login() {
     try {
       await login(email, senha)
       navigate('/')
-    } catch {
-      setErro('E-mail ou senha inválidos.')
+    } catch (err: any) {
+      setErro(err?.response?.data?.mensagem || 'E-mail ou senha inválidos.')
     } finally {
       setCarregando(false)
     }
