@@ -69,6 +69,16 @@ export async function atualizarFechamento(id: number, payload: FechamentoPayload
   return data
 }
 
+export async function ocultarFechamento(id: number) {
+  const { data } = await api.patch<Venda>(`/vendas/${id}/ocultar`)
+  return data
+}
+
+export async function desocultarFechamento(id: number) {
+  const { data } = await api.patch<Venda>(`/vendas/${id}/desocultar`)
+  return data
+}
+
 export async function excluirFechamento(id: number) {
   await api.delete(`/vendas/${id}`)
 }

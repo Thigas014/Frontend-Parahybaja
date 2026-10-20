@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  desocultarFechamento,
   listarDespesas,
   listarDiasDeVenda,
   listarPresencas,
@@ -90,6 +91,7 @@ export function Historico() {
   const [aberto, setAberto] = useState<string | null>(null)
   const [presencasPorData, setPresencasPorData] = useState<Record<string, Presenca[]>>({})
   const [carregandoPresenca, setCarregandoPresenca] = useState(false)
+  const [vendaDetalhada, setVendaDetalhada] = useState<Venda | null>(null)
 
     async function carregar() {
     setCarregando(true)
@@ -225,6 +227,19 @@ export function Historico() {
   }, [vendas, despesas])
 
   const hoje = hojeISO()
+
+  async function handleDesocultar(id: number) {
+    try {
+      await desocultarFechamento(id)
+      await carregar()
+    } catch (err: any) {
+      setErro(err?.response?.data?.mensagem || 'Não foi possível desocultar o fechamento.')
+    }
+  }
+
+  function quantidade(valor: number, denominacao: number) {
+    return Math.round((valor || 0) / denominacao)
+  }
 
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-4 pb-24 lg:pb-6">
@@ -439,13 +454,18 @@ export function Historico() {
                           </div>
 
                           <div className="flex justify-between pt-1 border-t border-slate-200 font-semibold">
-                            <span className="text-slate-700">
-                              Total
-                            </span>
-
-                            <span className="text-primary-600">
-                              {formatarMoeda(venda.valorTotal)}
-                            </span>
+                            <span className="text-slate-700">Total</span>
+                            <span className="text-primary-600">{formatarMoeda(venda.valorTotal)}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-2">
+                            <button onClick={() => setVendaDetalhada(venda)} className="text-xs rounded-lg bg-primary-600 text-white px-3 py-1.5 font-semibold hover:bg-primary-700">
+                              Detalhar venda
+                            </button>
+                            {venda.oculto && (
+                              <button onClick={() => handleDesocultar(venda.id)} className="text-xs rounded-lg bg-slate-200 text-slate-700 px-3 py-1.5 font-semibold hover:bg-slate-300">
+                                Desocultar fechamento
+                              </button>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -532,6 +552,32 @@ export function Historico() {
               </Card>
             )
           })}
+        </div>
+      )}
+
+      {vendaDetalhada && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setVendaDetalhada(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Detalhes do fechamento" className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div><h3 className="font-bold text-slate-800">Detalhes da venda</h3><p className="text-sm text-slate-500">{formatarData(vendaDetalhada.data)}</p></div>
+              <button onClick={() => setVendaDetalhada(null)} className="text-slate-400 hover:text-slate-700 text-xl" aria-label="Fechar">×</button>
+            </div>
+            <div className="space-y-4 text-sm">
+              <section>
+                <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Notas</h4>
+                {([['R$ 2,00', vendaDetalhada.notas2, 2], ['R$ 5,00', vendaDetalhada.notas5, 5], ['R$ 10,00', vendaDetalhada.notas10, 10], ['R$ 20,00', vendaDetalhada.notas20, 20], ['R$ 50,00', vendaDetalhada.notas50, 50]] as [string, number, number][]).map(([nome, subtotal, valor]) => <div key={nome} className="flex justify-between py-1"><span className="text-slate-600">{nome} · {quantidade(subtotal, valor)} nota(s)</span><span>{formatarMoeda(subtotal || 0)}</span></div>)}
+                <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><span>Total de notas</span><span>{formatarMoeda(vendaDetalhada.valorNotas)}</span></div>
+              </section>
+              <section>
+                <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Moedas</h4>
+                {([['R$ 1,00', vendaDetalhada.moedas1, 1], ['R$ 0,50', vendaDetalhada.moedas050, 0.5], ['R$ 0,25', vendaDetalhada.moedas025, 0.25], ['R$ 0,10', vendaDetalhada.moedas010, 0.1], ['R$ 0,05', vendaDetalhada.moedas005, 0.05]] as [string, number, number][]).map(([nome, subtotal, valor]) => <div key={nome} className="flex justify-between py-1"><span className="text-slate-600">{nome} · {quantidade(subtotal, valor)} moeda(s)</span><span>{formatarMoeda(subtotal || 0)}</span></div>)}
+                <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><span>Total de moedas</span><span>{formatarMoeda(vendaDetalhada.valorMoedas)}</span></div>
+              </section>
+              <div className="flex justify-between py-2 border-t border-slate-200"><span className="text-slate-600">Pix</span><span>{formatarMoeda(vendaDetalhada.valorPix || 0)}</span></div>
+              <div className="flex justify-between rounded-lg bg-primary-50 p-3 font-bold"><span>Total do fechamento</span><span className="text-primary-700">{formatarMoeda(vendaDetalhada.valorTotal)}</span></div>
+            </div>
+            <button onClick={() => setVendaDetalhada(null)} className="mt-5 w-full rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">Fechar</button>
+          </div>
         </div>
       )}
     </div>

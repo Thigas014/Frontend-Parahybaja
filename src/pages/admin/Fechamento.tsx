@@ -11,6 +11,7 @@ import {
   listarDespesas,
   listarDiasDeVenda,
   listarVendas,
+  ocultarFechamento,
   registrarFechamento
 } from '../../api/services'
 import type { FechamentoPayload } from '../../api/services'
@@ -236,6 +237,12 @@ export function Fechamento() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  async function ocultar(id: number) {
+    if (!confirm('Ocultar este fechamento da tela principal? Ele continuará disponível no histórico.')) return
+    await ocultarFechamento(id)
+    carregar()
   }
 
   async function excluir(id: number) {
@@ -524,7 +531,7 @@ export function Fechamento() {
       )}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {vendas.map((v) => {
+        {vendas.filter((v) => !v.oculto).map((v) => {
           const totalGastosDoCartao = despesasDaData(v.data).reduce((soma, d) => soma + d.valor, 0)
           return (
             <Card key={v.id}>
@@ -541,10 +548,14 @@ export function Fechamento() {
               <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
                 <button onClick={() => iniciarEdicao(v)} className="text-xs text-primary-600 font-semibold">Editar</button>
                 <button onClick={() => excluir(v.id)} className="text-xs text-red-500 font-semibold">Excluir</button>
+                <button onClick={() => ocultar(v.id)} className="text-xs text-slate-500 hover:text-slate-700 font-semibold">Ocultar</button>
               </div>
             </Card>
           )
         })}
+        {vendas.every((v) => v.oculto) && vendas.length > 0 && (
+          <p className="col-span-full text-sm text-slate-400 text-center py-4">Todos os fechamentos estão ocultos. Você pode reexibi-los pelo Histórico.</p>
+        )}
       </div>
 
       <div className="max-w-md space-y-3 pt-2">

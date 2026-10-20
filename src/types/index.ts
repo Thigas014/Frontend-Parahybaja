@@ -32,6 +32,7 @@ export interface Venda {
 
   registradoPorNome: string
   dataHora: string
+  oculto: boolean
 }
 
 export interface Aporte {
