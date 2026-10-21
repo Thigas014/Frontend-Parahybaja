@@ -3,6 +3,7 @@ import { criarDiaDeVenda, excluirDiaDeVenda, listarDiasDeVenda } from '../api/se
 import type { DiaDeVenda } from '../types'
 import { Card } from '../components/Card'
 import { useAuth } from '../context/AuthContext'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 const nomesMeses = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -21,6 +22,13 @@ export function Calendario() {
   const [anoAtual, setAnoAtual] = useState(hoje.getFullYear())
   const [dias, setDias] = useState<DiaDeVenda[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [processandoRemocao, setProcessandoRemocao] = useState(false)
+  const [confirmacaoAberta, setConfirmacaoAberta] = useState(false)
+  const [diaSelecionado, setDiaSelecionado] = useState<{
+    id: number
+    dia: number
+    mes: number
+  } | null>(null)
 
   async function carregar() {
     setCarregando(true)
@@ -54,18 +62,47 @@ export function Calendario() {
     setAnoAtual(novoAno)
   }
 
-  async function clicarDia(dia: number) {
-    if (!isAdmin) return
-    const iso = paraISO(anoAtual, mesAtual, dia)
-    const existente = marcados.get(iso)
-    if (existente) {
-      if (!confirm(`Remover ${dia}/${mesAtual + 1} como dia de venda?`)) return
-      await excluirDiaDeVenda(existente.id)
-    } else {
-      await criarDiaDeVenda(iso)
-    }
-    carregar()
+ async function clicarDia(dia: number) {
+  if (!isAdmin) return
+
+  const iso = paraISO(anoAtual, mesAtual, dia)
+  const existente = marcados.get(iso)
+
+  if (existente) {
+    setDiaSelecionado({
+      id: existente.id,
+      dia,
+      mes: mesAtual + 1,
+    })
+    setConfirmacaoAberta(true)
+    return
   }
+
+  await criarDiaDeVenda(iso)
+  await carregar()
+  }
+
+  
+async function confirmarRemocao() {
+  if (!diaSelecionado || processandoRemocao) return
+
+  setProcessandoRemocao(true)
+
+  try {
+    await excluirDiaDeVenda(diaSelecionado.id)
+
+    setConfirmacaoAberta(false)
+    setDiaSelecionado(null)
+
+    await carregar()
+  } catch (erro) {
+    console.error('Erro ao remover dia de venda:', erro)
+    alert('Não foi possível remover o dia de venda. Tente novamente.')
+  } finally {
+    setProcessandoRemocao(false)
+  }
+}
+
 
   const isHoje = (dia: number) =>
     dia === hoje.getDate() && mesAtual === hoje.getMonth() && anoAtual === hoje.getFullYear()
@@ -77,6 +114,23 @@ export function Calendario() {
         <p className="text-xs text-slate-500">Toque numa data para marcar ou desmarcar como dia de venda.</p>
       )}
 
+      <ConfirmDialog
+      aberto={confirmacaoAberta}
+      titulo="Remover dia de venda"
+      mensagem={
+        diaSelecionado
+          ? `Deseja remover ${diaSelecionado.dia}/${diaSelecionado.mes} como dia de venda?`
+          : 'Deseja remover este dia de venda?'
+      }
+      textoConfirmar="Remover"
+      processando={processandoRemocao}
+      onConfirmar={confirmarRemocao}
+      onCancelar={() => {
+        setConfirmacaoAberta(false)
+        setDiaSelecionado(null)
+      }}
+      />
+  
       <Card>
         <div className="flex items-center justify-between mb-4">
           <button onClick={() => mudarMes(-1)} className="w-8 h-8 rounded-lg bg-slate-100 font-bold text-slate-600">‹</button>

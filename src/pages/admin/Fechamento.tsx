@@ -17,6 +17,7 @@ import {
 import type { FechamentoPayload } from '../../api/services'
 import type { Aporte, Despesa, DiaDeVenda, Venda } from '../../types'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 
 function formatarMoeda(valor: number) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -107,6 +108,15 @@ export function Fechamento() {
   const [editandoDespesaId, setEditandoDespesaId] = useState<number | null>(null)
   const [formEditDespesa, setFormEditDespesa] = useState({ descricao: '', valor: '', data: '' })
   const [salvandoEdicaoDespesa, setSalvandoEdicaoDespesa] = useState(false)
+
+  const [confirmacaoAberta, setConfirmacaoAberta] = useState(false)
+
+  const [acaoPendente, setAcaoPendente] = useState<{
+    tipo: 'ocultar' | 'fechamento' | 'aporte' | 'despesa'
+    id: number
+  } | null>(null)
+
+  const [processandoConfirmacao, setProcessandoConfirmacao] = useState(false)
 
   async function carregar() {
     const [listaVendas, listaAportes, listaDespesas, listaDias] = await Promise.all([
@@ -239,16 +249,61 @@ export function Fechamento() {
     }
   }
 
-  async function ocultar(id: number) {
-    if (!confirm('Ocultar este fechamento da tela principal? Ele continuará disponível no histórico.')) return
-    await ocultarFechamento(id)
-    carregar()
+  function solicitarConfirmacao(
+  tipo: 'ocultar' | 'fechamento' | 'aporte' | 'despesa',
+  id: number
+) {
+  setAcaoPendente({ tipo, id })
+  setConfirmacaoAberta(true)
+}
+
+async function confirmarAcao() {
+  if (!acaoPendente || processandoConfirmacao) return
+
+  setProcessandoConfirmacao(true)
+
+  try {
+    const { tipo, id } = acaoPendente
+
+    if (tipo === 'ocultar') {
+      await ocultarFechamento(id)
+    } else if (tipo === 'fechamento') {
+      await excluirFechamento(id)
+    } else if (tipo === 'aporte') {
+      await excluirAporte(id)
+    } else {
+      await excluirDespesa(id)
+    }
+
+    setConfirmacaoAberta(false)
+    setAcaoPendente(null)
+
+    await carregar()
+  } catch (err) {
+    console.error('Erro ao executar ação:', err)
+
+    setMensagem({
+      tipo: 'erro',
+      texto: 'Não foi possível concluir a ação. Tente novamente.'
+    })
+  } finally {
+    setProcessandoConfirmacao(false)
+  }
+}
+
+function cancelarConfirmacao() {
+  if (processandoConfirmacao) return
+
+  setConfirmacaoAberta(false)
+  setAcaoPendente(null)
+}
+
+    function ocultar(id: number) {
+    solicitarConfirmacao('ocultar', id)
   }
 
-  async function excluir(id: number) {
-    if (!confirm('Excluir este fechamento?')) return
-    await excluirFechamento(id)
-    carregar()
+    function excluir(id: number) {
+    solicitarConfirmacao('fechamento', id)
   }
 
   async function handleCriarAporte(e: React.FormEvent) {
@@ -262,16 +317,12 @@ export function Fechamento() {
     carregar()
   }
 
-  async function handleExcluirAporte(id: number) {
-    if (!confirm('Excluir este aporte? Ele deixará de contar na meta.')) return
-    await excluirAporte(id)
-    carregar()
+    function handleExcluirAporte(id: number) {
+    solicitarConfirmacao('aporte', id)
   }
 
-  async function handleExcluirDespesa(id: number) {
-    if (!confirm('Excluir este gasto? Ele deixará de ser descontado no modo Líquido.')) return
-    await excluirDespesa(id)
-    carregar()
+    function handleExcluirDespesa(id: number) {
+    solicitarConfirmacao('despesa', id)
   }
 
   function iniciarEdicaoDespesa(d: Despesa) {
@@ -294,6 +345,40 @@ export function Fechamento() {
 
   return (
     <div className="space-y-4">
+
+    <ConfirmDialog
+        aberto={confirmacaoAberta}
+        titulo={
+          acaoPendente?.tipo === 'ocultar'
+            ? 'Ocultar fechamento'
+            : acaoPendente?.tipo === 'fechamento'
+              ? 'Excluir fechamento'
+              : acaoPendente?.tipo === 'aporte'
+                ? 'Excluir aporte'
+                : 'Excluir gasto'
+        }
+        mensagem={
+          acaoPendente?.tipo === 'ocultar'
+            ? 'Ocultar este fechamento da tela principal? Ele continuará disponível no histórico.'
+            : acaoPendente?.tipo === 'fechamento'
+              ? 'Excluir este fechamento?'
+              : acaoPendente?.tipo === 'aporte'
+                ? 'Excluir este aporte? Ele deixará de contar na meta.'
+                : 'Excluir este gasto? Ele deixará de ser descontado no modo Líquido.'
+        }
+        textoConfirmar={
+          processandoConfirmacao
+            ? 'Processando...'
+            : acaoPendente?.tipo === 'ocultar'
+              ? 'Ocultar'
+              : 'Excluir'
+        }
+        processando={processandoConfirmacao}
+        onConfirmar={confirmarAcao}
+        onCancelar={cancelarConfirmacao}
+        
+      />
+
       <div className="flex justify-between items-center">
         <h2 className="font-bold text-slate-800">Fechamento de caixa</h2>
         <button onClick={novoFechamento} className="text-sm bg-primary-600 text-white rounded-lg px-3 py-1.5 font-semibold">
