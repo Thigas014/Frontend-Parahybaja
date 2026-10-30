@@ -8,6 +8,7 @@ function formatarMoeda(valor: number) {
 }
 
 function formatarData(iso: string) {
+  iso = iso.split(" ")[0] // caso venha com hora, remover
   const [ano, mes, dia] = iso.split('-')
   return `${dia}/${mes}/${ano}`
 }
@@ -332,7 +333,7 @@ export function Historico() {
                               Gastos
                             </span>
 
-                            <span className="font-medium text-slate-700">
+                            <span className="font-medium text-red-700"> {/* Apresentar como negativo */}
                               {/* Programar para colocar gastos aqui */}
                             </span>
                           </div>
