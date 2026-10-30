@@ -6,6 +6,7 @@ import type {
   DiaDeVenda,
   Despesa,
   Presenca,
+  StatusPresenca,
   Usuario,
   Venda
 } from '../types'
@@ -33,7 +34,8 @@ export async function atualizarUsuario(id: number, payload: Partial<{ nome: stri
 }
 
 export async function excluirUsuario(id: number) {
-  await api.delete(`/usuarios/${id}`)
+  const { data } = await api.delete<{ excluido: boolean }>(`/usuarios/${id}`)
+  return data
 }
 
 // ---------- Vendas (fechamento de caixa: notas + moedas por denominação + pix) ----------
@@ -67,6 +69,16 @@ export async function atualizarFechamento(id: number, payload: FechamentoPayload
   return data
 }
 
+export async function ocultarFechamento(id: number) {
+  const { data } = await api.patch<Venda>(`/vendas/${id}/ocultar`)
+  return data
+}
+
+export async function desocultarFechamento(id: number) {
+  const { data } = await api.patch<Venda>(`/vendas/${id}/desocultar`)
+  return data
+}
+
 export async function excluirFechamento(id: number) {
   await api.delete(`/vendas/${id}`)
 }
@@ -88,8 +100,8 @@ export async function atualizarMeta(metaFinanceira: number) {
   return data
 }
 
-export async function atualizarTaxaAusencia(valorTaxaAusencia: number) {
-  const { data } = await api.put<Configuracao>('/configuracao/taxa-ausencia', { valorTaxaAusencia })
+export async function atualizarTaxas(valorTaxaJustificado: number, valorTaxaSemJustificativa: number) {
+  const { data } = await api.put<Configuracao>('/configuracao/taxas', { valorTaxaJustificado, valorTaxaSemJustificativa })
   return data
 }
 
@@ -114,9 +126,14 @@ export async function listarDespesas() {
   return data
 }
 
-export async function criarDespesa(descricao: string, valor: number) {
-  const { data } = await api.post<Despesa>('/despesas', { descricao, valor })
-  return data
+export async function criarDespesa(descricao: string, valor: number, data?: string) {
+  const { data: resp } = await api.post<Despesa>('/despesas', { descricao, valor, data })
+  return resp
+}
+
+export async function atualizarDespesa(id: number, descricao: string, valor: number, data?: string) {
+  const { data: resp } = await api.put<Despesa>(`/despesas/${id}`, { descricao, valor, data })
+  return resp
 }
 
 export async function excluirDespesa(id: number) {
@@ -134,8 +151,8 @@ export async function justificarAusencia(data: string, justificativa: string) {
   return resp
 }
 
-export async function marcarPresenca(usuarioId: number, data: string, presente: boolean) {
-  const { data: resp } = await api.post<Presenca>('/presencas/marcar', { usuarioId, data, presente })
+export async function marcarPresenca(usuarioId: number, data: string, status: StatusPresenca | null) {
+  const { data: resp } = await api.post<Presenca>('/presencas/marcar', { usuarioId, data, status })
   return resp
 }
 

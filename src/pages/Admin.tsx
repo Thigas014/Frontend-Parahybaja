@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Fechamento } from './admin/Fechamento'
 import { Membros } from './admin/Membros'
-import { Meta } from './admin/Meta'
+import { Configuracoes } from './admin/Configuracoes'
 
-type Aba = 'fechamento' | 'membros' | 'meta'
+type Aba = 'fechamento' | 'membros' | 'configuracoes'
 
 export function Admin() {
   const [aba, setAba] = useState<Aba>('fechamento')
@@ -11,7 +11,7 @@ export function Admin() {
   const abas: { valor: Aba; label: string }[] = [
     { valor: 'fechamento', label: '💰 Fechamento' },
     { valor: 'membros', label: '👥 Membros' },
-    { valor: 'meta', label: '🎯 Meta' }
+    { valor: 'configuracoes', label: '⚙️ Configurações' }
   ]
 
   return (
@@ -34,7 +34,7 @@ export function Admin() {
 
       {aba === 'fechamento' && <Fechamento />}
       {aba === 'membros' && <Membros />}
-      {aba === 'meta' && <Meta />}
+      {aba === 'configuracoes' && <Configuracoes />}
     </div>
   )
 }

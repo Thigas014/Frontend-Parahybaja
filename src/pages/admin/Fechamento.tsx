@@ -1,8 +1,23 @@
 import { useEffect, useState } from 'react'
-import { atualizarFechamento, excluirFechamento, listarVendas, registrarFechamento } from '../../api/services'
+import {
+  atualizarDespesa,
+  atualizarFechamento,
+  criarAporte,
+  criarDespesa,
+  excluirAporte,
+  excluirDespesa,
+  excluirFechamento,
+  listarAportes,
+  listarDespesas,
+  listarDiasDeVenda,
+  listarVendas,
+  ocultarFechamento,
+  registrarFechamento
+} from '../../api/services'
 import type { FechamentoPayload } from '../../api/services'
-import type { Venda } from '../../types'
+import type { Aporte, Despesa, DiaDeVenda, Venda } from '../../types'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 
 function formatarMoeda(valor: number) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -11,6 +26,10 @@ function formatarMoeda(valor: number) {
 function formatarData(iso: string) {
   const [ano, mes, dia] = iso.split('-')
   return `${dia}/${mes}/${ano}`
+}
+
+function formatarDataHora(iso: string) {
+  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function hojeISO() {
@@ -52,8 +71,15 @@ const moedasCampos: { chave: keyof typeof vazioQuantidades; label: string }[] = 
 
 const vazio = { data: hojeISO(), ...vazioQuantidades, valorPix: '' }
 
+type GastoLinha = { descricao: string; valor: string }
+
 function numero(v: string) {
   return Number(v) || 0
+}
+
+/** Extrai a parte de data (yyyy-MM-dd) de um dataHora ISO. */
+function dataDeDataHora(dataHora: string) {
+  return dataHora.split('T')[0]
 }
 
 /** Converte um valor em reais (vindo do backend) de volta pra quantidade de cédulas/moedas. */
@@ -65,14 +91,44 @@ function valorParaQuantidade(valor: number, denominacao: number) {
 
 export function Fechamento() {
   const [vendas, setVendas] = useState<Venda[]>([])
+  const [aportes, setAportes] = useState<Aporte[]>([])
+  const [despesas, setDespesas] = useState<Despesa[]>([])
+  const [diasDeVenda, setDiasDeVenda] = useState<DiaDeVenda[]>([])
   const [form, setForm] = useState(vazio)
+  const [gastos, setGastos] = useState<GastoLinha[]>([])
   const [editandoId, setEditandoId] = useState<number | null>(null)
   const [mostrarForm, setMostrarForm] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
 
+  const [descricaoAporte, setDescricaoAporte] = useState('')
+  const [valorAporte, setValorAporte] = useState('')
+  const [enviandoAporte, setEnviandoAporte] = useState(false)
+
+  const [editandoDespesaId, setEditandoDespesaId] = useState<number | null>(null)
+  const [formEditDespesa, setFormEditDespesa] = useState({ descricao: '', valor: '', data: '' })
+  const [salvandoEdicaoDespesa, setSalvandoEdicaoDespesa] = useState(false)
+
+  const [confirmacaoAberta, setConfirmacaoAberta] = useState(false)
+
+  const [acaoPendente, setAcaoPendente] = useState<{
+    tipo: 'ocultar' | 'fechamento' | 'aporte' | 'despesa'
+    id: number
+  } | null>(null)
+
+  const [processandoConfirmacao, setProcessandoConfirmacao] = useState(false)
+
   async function carregar() {
-    setVendas(await listarVendas())
+    const [listaVendas, listaAportes, listaDespesas, listaDias] = await Promise.all([
+      listarVendas(),
+      listarAportes(),
+      listarDespesas(),
+      listarDiasDeVenda()
+    ])
+    setVendas(listaVendas)
+    setAportes(listaAportes)
+    setDespesas(listaDespesas)
+    setDiasDeVenda(listaDias)
   }
 
   useEffect(() => {
@@ -81,7 +137,9 @@ export function Fechamento() {
 
   function novoFechamento() {
     setEditandoId(null)
-    setForm({ ...vazio, data: hojeISO() })
+    const primeiraDataDisponivel = opcoesDeData()[0] ?? ''
+    setForm({ ...vazio, data: primeiraDataDisponivel })
+    setGastos([])
     setMostrarForm(true)
     setMensagem(null)
   }
@@ -102,6 +160,7 @@ export function Fechamento() {
       moedas005: valorParaQuantidade(v.moedas005, 0.05),
       valorPix: String(v.valorPix)
     })
+    setGastos([])
     setMostrarForm(true)
     setMensagem(null)
   }
@@ -110,10 +169,46 @@ export function Fechamento() {
     return numero(form[chave]) * DENOMINACOES[chave]
   }
 
+  function despesasDaData(data: string) {
+    return despesas.filter((d) => dataDeDataHora(d.dataHora) === data)
+  }
+
+  function despesasDoDiaDoFormulario() {
+    return despesasDaData(form.data)
+  }
+
+  /** Datas disponíveis pro select: as marcadas no calendário + a data atual do fechamento em edição (se não estiver mais lá). */
+  function opcoesDeData() {
+    const hoje = hojeISO()
+    const datas = new Set(diasDeVenda.map((d) => d.data))
+    if (editandoId && form.data) datas.add(form.data)
+    return Array.from(datas).sort((a, b) => {
+      const aFutura = a >= hoje
+      const bFutura = b >= hoje
+      if (aFutura && !bFutura) return -1
+      if (!aFutura && bFutura) return 1
+      if (aFutura && bFutura) return a.localeCompare(b)
+      return b.localeCompare(a)
+    })
+  }
+
+  function adicionarGasto() {
+    setGastos((atual) => [...atual, { descricao: '', valor: '' }])
+  }
+
+  function atualizarGasto(index: number, campo: keyof GastoLinha, valor: string) {
+    setGastos((atual) => atual.map((g, i) => (i === index ? { ...g, [campo]: valor } : g)))
+  }
+
+  function removerGasto(index: number) {
+    setGastos((atual) => atual.filter((_, i) => i !== index))
+  }
+
   const totalNotas = notasCampos.reduce((soma, c) => soma + subtotal(c.chave), 0)
   const totalMoedas = moedasCampos.reduce((soma, c) => soma + subtotal(c.chave), 0)
   const totalPix = numero(form.valorPix)
   const valorTotal = totalNotas + totalMoedas + totalPix
+  const totalGastos = gastos.reduce((soma, g) => soma + numero(g.valor), 0)
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -137,6 +232,13 @@ export function Fechamento() {
       } else {
         await registrarFechamento(payload)
       }
+
+      // Lança cada gasto preenchido, já datado com o mesmo dia do fechamento.
+      const gastosValidos = gastos.filter((g) => g.descricao.trim() && numero(g.valor) > 0)
+      for (const g of gastosValidos) {
+        await criarDespesa(g.descricao.trim(), numero(g.valor), form.data)
+      }
+
       setMensagem({ tipo: 'sucesso', texto: 'Fechamento salvo com sucesso!' })
       setMostrarForm(false)
       carregar()
@@ -147,14 +249,136 @@ export function Fechamento() {
     }
   }
 
-  async function excluir(id: number) {
-    if (!confirm('Excluir este fechamento?')) return
-    await excluirFechamento(id)
+  function solicitarConfirmacao(
+  tipo: 'ocultar' | 'fechamento' | 'aporte' | 'despesa',
+  id: number
+) {
+  setAcaoPendente({ tipo, id })
+  setConfirmacaoAberta(true)
+}
+
+async function confirmarAcao() {
+  if (!acaoPendente || processandoConfirmacao) return
+
+  setProcessandoConfirmacao(true)
+
+  try {
+    const { tipo, id } = acaoPendente
+
+    if (tipo === 'ocultar') {
+      await ocultarFechamento(id)
+    } else if (tipo === 'fechamento') {
+      await excluirFechamento(id)
+    } else if (tipo === 'aporte') {
+      await excluirAporte(id)
+    } else {
+      await excluirDespesa(id)
+    }
+
+    setConfirmacaoAberta(false)
+    setAcaoPendente(null)
+
+    await carregar()
+  } catch (err) {
+    console.error('Erro ao executar ação:', err)
+
+    setMensagem({
+      tipo: 'erro',
+      texto: 'Não foi possível concluir a ação. Tente novamente.'
+    })
+  } finally {
+    setProcessandoConfirmacao(false)
+  }
+}
+
+function cancelarConfirmacao() {
+  if (processandoConfirmacao) return
+
+  setConfirmacaoAberta(false)
+  setAcaoPendente(null)
+}
+
+    function ocultar(id: number) {
+    solicitarConfirmacao('ocultar', id)
+  }
+
+    function excluir(id: number) {
+    solicitarConfirmacao('fechamento', id)
+  }
+
+  async function handleCriarAporte(e: React.FormEvent) {
+    e.preventDefault()
+    if (!descricaoAporte || !valorAporte) return
+    setEnviandoAporte(true)
+    await criarAporte(descricaoAporte, Number(valorAporte))
+    setDescricaoAporte('')
+    setValorAporte('')
+    setEnviandoAporte(false)
+    carregar()
+  }
+
+    function handleExcluirAporte(id: number) {
+    solicitarConfirmacao('aporte', id)
+  }
+
+    function handleExcluirDespesa(id: number) {
+    solicitarConfirmacao('despesa', id)
+  }
+
+  function iniciarEdicaoDespesa(d: Despesa) {
+    setEditandoDespesaId(d.id)
+    setFormEditDespesa({ descricao: d.descricao, valor: String(d.valor), data: dataDeDataHora(d.dataHora) })
+  }
+
+  function cancelarEdicaoDespesa() {
+    setEditandoDespesaId(null)
+  }
+
+  async function salvarEdicaoDespesa(id: number) {
+    if (!formEditDespesa.descricao.trim() || numero(formEditDespesa.valor) <= 0) return
+    setSalvandoEdicaoDespesa(true)
+    await atualizarDespesa(id, formEditDespesa.descricao.trim(), numero(formEditDespesa.valor), formEditDespesa.data)
+    setSalvandoEdicaoDespesa(false)
+    setEditandoDespesaId(null)
     carregar()
   }
 
   return (
     <div className="space-y-4">
+
+    <ConfirmDialog
+        aberto={confirmacaoAberta}
+        titulo={
+          acaoPendente?.tipo === 'ocultar'
+            ? 'Ocultar fechamento'
+            : acaoPendente?.tipo === 'fechamento'
+              ? 'Excluir fechamento'
+              : acaoPendente?.tipo === 'aporte'
+                ? 'Excluir aporte'
+                : 'Excluir gasto'
+        }
+        mensagem={
+          acaoPendente?.tipo === 'ocultar'
+            ? 'Ocultar este fechamento da tela principal? Ele continuará disponível no histórico.'
+            : acaoPendente?.tipo === 'fechamento'
+              ? 'Excluir este fechamento?'
+              : acaoPendente?.tipo === 'aporte'
+                ? 'Excluir este aporte? Ele deixará de contar na meta.'
+                : 'Excluir este gasto? Ele deixará de ser descontado no modo Líquido.'
+        }
+        textoConfirmar={
+          processandoConfirmacao
+            ? 'Processando...'
+            : acaoPendente?.tipo === 'ocultar'
+              ? 'Ocultar'
+              : 'Excluir'
+        }
+        processando={processandoConfirmacao}
+        onConfirmar={confirmarAcao}
+        onCancelar={cancelarConfirmacao}
+        
+      />
+
       <div className="flex justify-between items-center">
         <h2 className="font-bold text-slate-800">Fechamento de caixa</h2>
         <button onClick={novoFechamento} className="text-sm bg-primary-600 text-white rounded-lg px-3 py-1.5 font-semibold">
@@ -166,14 +390,23 @@ export function Fechamento() {
         <Card className="max-w-lg">
           <form onSubmit={salvar} className="space-y-4">
             <div>
-              <label className="text-xs text-slate-500">Data</label>
-              <input
+              <label className="text-xs text-slate-500">Data (só datas marcadas no Calendário)</label>
+              <select
                 required
-                type="date"
                 value={form.data}
                 onChange={(e) => setForm({ ...form, data: e.target.value })}
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              />
+              >
+                {opcoesDeData().length === 0 && <option value="">Nenhuma data marcada no calendário</option>}
+                {opcoesDeData().map((data) => (
+                  <option key={data} value={data}>{formatarData(data)}</option>
+                ))}
+              </select>
+              {opcoesDeData().length === 0 && (
+                <p className="text-[11px] text-amber-600 mt-1">
+                  Marque uma data em Calendário antes de lançar um fechamento novo.
+                </p>
+              )}
             </div>
 
             <div>
@@ -242,8 +475,118 @@ export function Fechamento() {
             </div>
 
             <div className="bg-primary-50 rounded-xl px-4 py-3 flex justify-between items-center">
-              <span className="text-sm text-primary-700">Rendimento total</span>
+              <span className="text-sm text-primary-700">Valor bruto</span>
               <span className="text-lg font-bold text-primary-700">{formatarMoeda(valorTotal)}</span>
+            </div>
+
+            {/* Gastos de reposição do mesmo dia */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-xs font-semibold text-slate-600 uppercase">Gastos de reposição (opcional)</p>
+                {totalGastos > 0 && <span className="text-xs font-semibold text-red-500">− {formatarMoeda(totalGastos)}</span>}
+              </div>
+
+              {despesasDoDiaDoFormulario().length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  <p className="text-[11px] text-slate-400">Já lançados nessa data:</p>
+                  {despesasDoDiaDoFormulario().map((d) =>
+                    editandoDespesaId === d.id ? (
+                      <div key={d.id} className="bg-slate-50 rounded-lg px-2.5 py-2 space-y-1.5">
+                        <input
+                          value={formEditDespesa.descricao}
+                          onChange={(e) => setFormEditDespesa({ ...formEditDespesa, descricao: e.target.value })}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min={0.01}
+                            value={formEditDespesa.valor}
+                            onChange={(e) => setFormEditDespesa({ ...formEditDespesa, valor: e.target.value })}
+                            className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => salvarEdicaoDespesa(d.id)}
+                            disabled={salvandoEdicaoDespesa}
+                            className="bg-primary-600 text-white rounded-lg px-2.5 text-xs font-semibold"
+                          >
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelarEdicaoDespesa}
+                            className="bg-slate-200 text-slate-600 rounded-lg px-2.5 text-xs font-semibold"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div key={d.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-2.5 py-1.5">
+                        <span className="text-sm text-slate-600 truncate">{d.descricao}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-sm font-medium text-red-500">− {formatarMoeda(d.valor)}</span>
+                          <button
+                            type="button"
+                            onClick={() => iniciarEdicaoDespesa(d)}
+                            className="text-slate-400 hover:text-primary-600 text-xs font-semibold"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExcluirDespesa(d.id)}
+                            className="text-slate-400 hover:text-red-500 text-sm"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {gastos.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  {gastos.map((g, index) => (
+                    <div key={index} className="flex gap-2 items-start">
+                      <input
+                        placeholder="Descrição (ex: Água, Gelo...)"
+                        value={g.descricao}
+                        onChange={(e) => atualizarGasto(index, 'descricao', e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        placeholder="0,00"
+                        value={g.valor}
+                        onChange={(e) => atualizarGasto(index, 'valor', e.target.value)}
+                        className="w-24 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removerGasto(index)}
+                        className="text-slate-400 hover:text-red-500 px-1 py-1.5 text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={adicionarGasto}
+                className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+              >
+                + Adicionar gasto
+              </button>
             </div>
 
             {mensagem && (
@@ -273,23 +616,84 @@ export function Fechamento() {
       )}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {vendas.map((v) => (
-          <Card key={v.id}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="font-semibold text-slate-800">{formatarData(v.data)}</p>
+        {vendas.filter((v) => !v.oculto).map((v) => {
+          const totalGastosDoCartao = despesasDaData(v.data).reduce((soma, d) => soma + d.valor, 0)
+          return (
+            <Card key={v.id}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-semibold text-slate-800">{formatarData(v.data)}</p>
+                  <p className="text-xs text-slate-500">
+                    Notas {formatarMoeda(v.valorNotas)} · Moedas {formatarMoeda(v.valorMoedas)} · Pix {formatarMoeda(v.valorPix)}
+                    {totalGastosDoCartao > 0 && <> · Gastos <span className="text-red-500">− {formatarMoeda(totalGastosDoCartao)}</span></>}
+                  </p>
+                </div>
+                <p className="font-bold text-primary-600">{formatarMoeda(v.valorTotal - totalGastosDoCartao)}</p>
+              </div>
+              <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
+                <button onClick={() => iniciarEdicao(v)} className="text-xs text-primary-600 font-semibold">Editar</button>
+                <button onClick={() => excluir(v.id)} className="text-xs text-red-500 font-semibold">Excluir</button>
+                <button onClick={() => ocultar(v.id)} className="text-xs text-slate-500 hover:text-slate-700 font-semibold">Ocultar</button>
+              </div>
+            </Card>
+          )
+        })}
+        {vendas.every((v) => v.oculto) && vendas.length > 0 && (
+          <p className="col-span-full text-sm text-slate-400 text-center py-4">Todos os fechamentos estão ocultos. Você pode reexibi-los pelo Histórico.</p>
+        )}
+      </div>
+
+      <div className="max-w-md space-y-3 pt-2">
+        <h3 className="text-sm font-bold text-slate-700">🎁 Aportes / doações</h3>
+        <Card>
+          <form onSubmit={handleCriarAporte} className="space-y-3">
+            <input
+              required
+              placeholder="Descrição (ex: Doação da Padaria Central)"
+              value={descricaoAporte}
+              onChange={(e) => setDescricaoAporte(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <input
+              required
+              type="number"
+              step="0.01"
+              min={0.01}
+              placeholder="Valor (R$)"
+              value={valorAporte}
+              onChange={(e) => setValorAporte(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={enviandoAporte}
+              className="w-full bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white font-semibold rounded-lg py-2 text-sm"
+            >
+              {enviandoAporte ? 'Lançando...' : 'Lançar aporte'}
+            </button>
+          </form>
+        </Card>
+
+        {aportes.length === 0 ? (
+          <Card><p className="text-slate-400 text-sm text-center py-4">Nenhum aporte lançado ainda.</p></Card>
+        ) : (
+          aportes.map((a) => (
+            <Card key={a.id} className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="font-medium text-slate-800 text-sm truncate">{a.descricao}</p>
                 <p className="text-xs text-slate-500">
-                  Notas {formatarMoeda(v.valorNotas)} · Moedas {formatarMoeda(v.valorMoedas)} · Pix {formatarMoeda(v.valorPix)}
+                  {formatarDataHora(a.dataHora)} · lançado por {a.registradoPorNome}
                 </p>
               </div>
-              <p className="font-bold text-primary-600">{formatarMoeda(v.valorTotal)}</p>
-            </div>
-            <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
-              <button onClick={() => iniciarEdicao(v)} className="text-xs text-primary-600 font-semibold">Editar</button>
-              <button onClick={() => excluir(v.id)} className="text-xs text-red-500 font-semibold">Excluir</button>
-            </div>
-          </Card>
-        ))}
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="font-bold text-primary-600">{formatarMoeda(a.valor)}</span>
+                <button onClick={() => handleExcluirAporte(a.id)} className="text-xs text-red-500 font-semibold">
+                  Excluir
+                </button>
+              </div>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   )

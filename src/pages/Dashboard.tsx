@@ -39,6 +39,7 @@ export function Dashboard() {
   async function carregar() {
     setCarregando(true)
     setErro('')
+
     try {
       const data = await obterDashboard()
       setDados(data)
@@ -111,11 +112,7 @@ export function Dashboard() {
             </div>
 
             <p className="text-xs text-slate-400 mb-2">
-              {vendaHoje
-                ? `Venda de hoje, ${formatarDataCurta(dados.fimSemana)}`
-                : dados.fimSemana > hoje
-                  ? `Meta em andamento — venda marcada pra ${formatarDataCurta(dados.fimSemana)}`
-                  : `Última semana fechada, ${formatarDataCurta(dados.fimSemana)}`}
+              Semana de {formatarDataCurta(dados.inicioSemana)} a {formatarDataCurta(dados.fimSemana)}
             </p>
 
             <div className="flex items-center justify-between mb-1">

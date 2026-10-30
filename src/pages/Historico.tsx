@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { listarDiasDeVenda, listarPresencas, listarVendas } from '../api/services'
-import type { DiaDeVenda, Presenca, Venda } from '../types'
+import {
+  desocultarFechamento,
+  listarDespesas,
+  listarDiasDeVenda,
+  listarPresencas,
+  listarVendas,
+  listarUsuarios
+} from '../api/services'
+import type { DiaDeVenda, Despesa, Presenca, Venda, Usuario } from '../types'
 import { Card } from '../components/Card'
 
 function formatarMoeda(valor: number) {
@@ -13,28 +20,71 @@ function formatarData(iso: string) {
   return `${dia}/${mes}/${ano}`
 }
 
+function formatarDataCurta(iso: string) {
+  const [, mes, dia] = iso.split('-')
+  return `${dia}/${mes}`
+}
+
+/** Extrai a parte de data (yyyy-MM-dd) de um dataHora ISO (ex: "2026-09-19T12:00:00"). */
+function dataDeDataHora(dataHora: string) {
+  return dataHora.split('T')[0]
+}
+
 function hojeISO() {
   const hoje = new Date()
   return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`
 }
 
 const nomesMeses = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  'Janeiro','Fevereiro','Março','Abril',
+  'Maio','Junho','Julho', 'Agosto',
+  'Setembro','Outubro','Novembro','Dezembro'
 ]
 
 type Visao = 'semana' | 'mes'
 
 function rotuloPresenca(p: Presenca) {
-  if (p.presente === true) return { texto: 'Presente', cor: 'text-green-600' }
-  if (p.presente === false && p.justificativa) return { texto: 'Justificou ausência', cor: 'text-amber-600' }
-  if (p.presente === false) return { texto: 'Faltou (sem justificativa)', cor: 'text-red-500' }
-  return { texto: 'Pendente', cor: 'text-slate-400' }
+  if (p.status === 'PRESENTE') {
+    return { texto: 'Presente', cor: 'text-green-600' }
+  }
+
+  if (p.status === 'JUSTIFICADO') {
+    return { texto: 'Justificado', cor: 'text-amber-600' }
+  }
+
+  if (p.status === 'AUSENTE') {
+    return {
+      texto: 'Ausente (sem justificativa)',
+      cor: 'text-red-500'
+    }
+  }
+
+  return {
+    texto: 'Pendente',
+    cor: 'text-slate-400'
+  }
+}
+
+function ordenarDatas(a: string, b: string, hoje: string) {
+  const aFutura = a >= hoje
+  const bFutura = b >= hoje
+
+  if (aFutura && !bFutura) return -1
+  if (!aFutura && bFutura) return 1
+
+  if (aFutura && bFutura) {
+    return a.localeCompare(b)
+  }
+
+  return b.localeCompare(a)
 }
 
 export function Historico() {
   const [vendas, setVendas] = useState<Venda[]>([])
   const [dias, setDias] = useState<DiaDeVenda[]>([])
+  const [despesas, setDespesas] = useState<Despesa[]>([])
+  const [membros, setMembros] = useState<Usuario[]>([])
+
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [visao, setVisao] = useState<Visao>('semana')
@@ -42,40 +92,26 @@ export function Historico() {
   const [aberto, setAberto] = useState<string | null>(null)
   const [presencasPorData, setPresencasPorData] = useState<Record<string, Presenca[]>>({})
   const [carregandoPresenca, setCarregandoPresenca] = useState(false)
+  const [vendaDetalhada, setVendaDetalhada] = useState<Venda | null>(null)
 
-  async function carregar() {
+    async function carregar() {
     setCarregando(true)
     setErro('')
 
     try {
-      const [listaVendas, listaDias] = await Promise.all([
+      const [listaVendas, listaDias, listaDespesas] = await Promise.all([
         listarVendas(),
-        listarDiasDeVenda()
+        listarDiasDeVenda(),
+        listarDespesas()
       ])
 
       setVendas(listaVendas)
-
-      const hoje = hojeISO()
-
-      setDias(
-        [...listaDias].sort((a, b) => {
-          const aFutura = a.data >= hoje
-          const bFutura = b.data >= hoje
-
-          if (aFutura && !bFutura) return -1
-          if (!aFutura && bFutura) return 1
-
-          if (aFutura && bFutura) {
-            return a.data.localeCompare(b.data)
-          }
-
-          return b.data.localeCompare(a.data)
-        })
-      )
+      setDias(listaDias)
+      setDespesas(listaDespesas)
     } catch (err: any) {
       setErro(
         err?.response?.data?.mensagem ||
-          'Não foi possível carregar o histórico.'
+        'Não foi possível carregar o histórico.'
       )
     } finally {
       setCarregando(false)
@@ -112,25 +148,70 @@ export function Historico() {
     return vendas.find((v) => v.data === data) || null
   }
 
+  function despesasDaData(data: string) {
+    return despesas.filter(
+      (d) => dataDeDataHora(d.dataHora) === data
+    )
+  }
+
+    /** Mostra todo mundo que já tem um status decidido nessa data — inclusive
+   *  membros desativados depois, pra manter o histórico intacto. Só esconde
+   *  o que ainda está pendente (status null), porque isso não é "histórico" ainda. */
+  function presencasParaHistorico(data: string) {
+    const presencas = presencasPorData[data] || []
+    return presencas.filter((p) => p.status !== null)
+  }
+
+  // Junta as datas marcadas no calendário, as datas com fechamento e as datas
+  // com gasto de reposição lançado — mesmo que essas listas não coincidam
+  // totalmente, assim nada fica de fora do histórico.
+  const datasCombinadas = useMemo(() => {
+    const hoje = hojeISO()
+
+    const conjunto = new Set<string>([
+      ...dias.map((d) => d.data),
+      ...vendas.map((v) => v.data),
+      ...despesas.map((d) => dataDeDataHora(d.dataHora))
+    ])
+
+    return Array.from(conjunto).sort(
+      (a, b) => ordenarDatas(a, b, hoje)
+    )
+  }, [dias, vendas, despesas])
+
   const porMes = useMemo(() => {
     const grupos = new Map<
       string,
-      { label: string; total: number; qtd: number }
+      {
+        label: string
+        total: number
+        datas: string[]
+      }
     >()
 
     for (const v of vendas) {
       const [ano, mes] = v.data.split('-')
       const chave = `${ano}-${mes}`
+
       const label = `${nomesMeses[Number(mes) - 1]} de ${ano}`
 
       const atual = grupos.get(chave) || {
         label,
         total: 0,
-        qtd: 0
+        datas: []
       }
 
-      atual.total += v.valorTotal
-      atual.qtd += 1
+      const gastosDessaData = despesas
+        .filter(
+          (d) => dataDeDataHora(d.dataHora) === v.data
+        )
+        .reduce(
+          (soma, d) => soma + d.valor,
+          0
+        )
+
+      atual.total += v.valorTotal - gastosDessaData
+      atual.datas.push(v.data)
 
       grupos.set(chave, atual)
     }
@@ -139,11 +220,27 @@ export function Historico() {
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([chave, dados]) => ({
         chave,
-        ...dados
+        ...dados,
+        datas: dados.datas.sort(
+          (a, b) => b.localeCompare(a)
+        )
       }))
-  }, [vendas])
+  }, [vendas, despesas])
 
   const hoje = hojeISO()
+
+  async function handleDesocultar(id: number) {
+    try {
+      await desocultarFechamento(id)
+      await carregar()
+    } catch (err: any) {
+      setErro(err?.response?.data?.mensagem || 'Não foi possível desocultar o fechamento.')
+    }
+  }
+
+  function quantidade(valor: number, denominacao: number) {
+    return Math.round((valor || 0) / denominacao)
+  }
 
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-4 pb-24 lg:pb-6">
@@ -202,59 +299,78 @@ export function Historico() {
             </Card>
           ) : (
             porMes.map((m) => (
-              <Card
-                key={m.chave}
-                className="flex items-center justify-between"
-              >
-                <div>
+              <Card key={m.chave}>
+                <div className="flex items-center justify-between">
                   <p className="font-semibold text-slate-800">
                     {m.label}
                   </p>
 
-                  <p className="text-xs text-slate-500">
-                    {m.qtd}{' '}
-                    {m.qtd === 1
-                      ? 'fechamento'
-                      : 'fechamentos'}
-                  </p>
+                  <span className="font-bold text-primary-600">
+                    {formatarMoeda(m.total)}
+                  </span>
                 </div>
 
-                <span className="font-bold text-primary-600">
-                  {formatarMoeda(m.total)}
-                </span>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {m.datas.map((data) => (
+                    <span
+                      key={data}
+                      className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium"
+                    >
+                      {formatarDataCurta(data)}
+                    </span>
+                  ))}
+                </div>
               </Card>
             ))
           )}
         </div>
-      ) : dias.length === 0 ? (
+      ) : datasCombinadas.length === 0 ? (
         <Card>
           <p className="text-slate-400 text-sm text-center py-6">
-            Nenhuma data de venda marcada no calendário ainda.
+            Nenhum fechamento ou data marcada ainda.
           </p>
         </Card>
       ) : (
         <div className="space-y-2">
-          {dias.map((d, index) => {
-            const venda = vendaDaData(d.data)
-            const estaAberto = aberto === d.data
-            const presencasDoDia = presencasPorData[d.data]
+          {datasCombinadas.map((data) => {
+            const venda = vendaDaData(data)
+            const gastosDoDia = despesasDaData(data)
 
-            const ehHoje = d.data === hoje
-            const ehProxima = index === 0 && !ehHoje
+            const totalGastosDoDia = gastosDoDia.reduce(
+              (soma, d) => soma + d.valor,
+              0
+            )
+
+            const estaNoCalendario = dias.some(
+              (d) => d.data === data
+            )
+
+            const estaAberto = aberto === data
+            const presencasDoDia = presencasPorData[data]
+
+            const dataPassou = data < hoje
+            const ehHoje = data === hoje
+            const ehFutura = data > hoje
 
             return (
               <Card
-                key={d.id}
+                key={data}
                 className="overflow-hidden !p-0"
               >
                 <button
-                  onClick={() => toggleAberto(d.data)}
+                  onClick={() => toggleAberto(data)}
                   className="w-full flex items-center justify-between px-4 py-3 text-left"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-slate-800">
-                      {formatarData(d.data)}
+                      {formatarData(data)}
                     </span>
+
+                    {dataPassou && (
+                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">
+                        Passou
+                      </span>
+                    )}
 
                     {ehHoje && (
                       <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-semibold">
@@ -262,9 +378,15 @@ export function Historico() {
                       </span>
                     )}
 
-                    {ehProxima && (
-                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">
+                    {ehFutura && (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
                         Próxima
+                      </span>
+                    )}
+
+                    {!estaNoCalendario && (
+                      <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full font-semibold">
+                        Fora do calendário
                       </span>
                     )}
                   </div>
@@ -278,7 +400,10 @@ export function Historico() {
                       }`}
                     >
                       {venda
-                        ? formatarMoeda(venda.valorTotal)
+                        ? formatarMoeda(
+                            venda.valorTotal -
+                              totalGastosDoDia
+                          )
                         : 'sem fechamento'}
                     </span>
 
@@ -290,6 +415,7 @@ export function Historico() {
 
                 {estaAberto && (
                   <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-4">
+
                     {/* Histórico do caixa */}
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase mb-2">
@@ -339,13 +465,18 @@ export function Historico() {
                           </div>
 
                           <div className="flex justify-between pt-1 border-t border-slate-200 font-semibold">
-                            <span className="text-slate-700">
-                              Total
-                            </span>
-
-                            <span className="text-primary-600">
-                              {formatarMoeda(venda.valorTotal)}
-                            </span>
+                            <span className="text-slate-700">Total</span>
+                            <span className="text-primary-600">{formatarMoeda(venda.valorTotal)}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-2">
+                            <button onClick={() => setVendaDetalhada(venda)} className="text-xs rounded-lg bg-primary-600 text-white px-3 py-1.5 font-semibold hover:bg-primary-700">
+                              Detalhar venda
+                            </button>
+                            {venda.oculto && (
+                              <button onClick={() => handleDesocultar(venda.id)} className="text-xs rounded-lg bg-slate-200 text-slate-700 px-3 py-1.5 font-semibold hover:bg-slate-300">
+                                Desocultar fechamento
+                              </button>
+                            )}
                           </div>
 
                                 {/* Total Líquido */}
@@ -366,25 +497,55 @@ export function Historico() {
                       )}
                     </div>
 
+                    {/* Gastos de reposição */}
+                    {gastosDoDia.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-slate-500 uppercase">
+                            Gastos de reposição
+                          </p>
+
+                          <span className="text-xs font-semibold text-red-500">
+                            − {formatarMoeda(totalGastosDoDia)}
+                          </span>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-lg px-3 py-2 space-y-1.5">
+                          {gastosDoDia.map((d) => (
+                            <div
+                              key={d.id}
+                              className="flex justify-between text-sm"
+                            >
+                              <span className="text-slate-600">
+                                {d.descricao}
+                              </span>
+
+                              <span className="font-medium text-red-500">
+                                − {formatarMoeda(d.valor)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Lista de presença */}
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase mb-2">
                         Lista de presença
                       </p>
 
-                      {carregandoPresenca &&
-                      !presencasDoDia ? (
+                      {carregandoPresenca && !presencasDoDia ? (
                         <p className="text-xs text-slate-400">
                           Carregando...
                         </p>
-                      ) : !presencasDoDia ||
-                        presencasDoDia.length === 0 ? (
+                      ) : presencasParaHistorico(data).length === 0 ? (
                         <p className="text-xs text-slate-400">
                           Ninguém marcado ainda nessa data.
                         </p>
                       ) : (
                         <div className="space-y-1.5">
-                          {presencasDoDia.map((p) => {
+                          {presencasParaHistorico(data).map((p) => {
                             const rotulo = rotuloPresenca(p)
 
                             return (
@@ -407,11 +568,38 @@ export function Historico() {
                         </div>
                       )}
                     </div>
+
                   </div>
                 )}
               </Card>
             )
           })}
+        </div>
+      )}
+
+      {vendaDetalhada && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setVendaDetalhada(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Detalhes do fechamento" className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div><h3 className="font-bold text-slate-800">Detalhes da venda</h3><p className="text-sm text-slate-500">{formatarData(vendaDetalhada.data)}</p></div>
+              <button onClick={() => setVendaDetalhada(null)} className="text-slate-400 hover:text-slate-700 text-xl" aria-label="Fechar">×</button>
+            </div>
+            <div className="space-y-4 text-sm">
+              <section>
+                <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Notas</h4>
+                {([['R$ 2,00', vendaDetalhada.notas2, 2], ['R$ 5,00', vendaDetalhada.notas5, 5], ['R$ 10,00', vendaDetalhada.notas10, 10], ['R$ 20,00', vendaDetalhada.notas20, 20], ['R$ 50,00', vendaDetalhada.notas50, 50]] as [string, number, number][]).map(([nome, subtotal, valor]) => <div key={nome} className="flex justify-between py-1"><span className="text-slate-600">{nome} · {quantidade(subtotal, valor)} nota(s)</span><span>{formatarMoeda(subtotal || 0)}</span></div>)}
+                <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><span>Total de notas</span><span>{formatarMoeda(vendaDetalhada.valorNotas)}</span></div>
+              </section>
+              <section>
+                <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Moedas</h4>
+                {([['R$ 1,00', vendaDetalhada.moedas1, 1], ['R$ 0,50', vendaDetalhada.moedas050, 0.5], ['R$ 0,25', vendaDetalhada.moedas025, 0.25], ['R$ 0,10', vendaDetalhada.moedas010, 0.1], ['R$ 0,05', vendaDetalhada.moedas005, 0.05]] as [string, number, number][]).map(([nome, subtotal, valor]) => <div key={nome} className="flex justify-between py-1"><span className="text-slate-600">{nome} · {quantidade(subtotal, valor)} moeda(s)</span><span>{formatarMoeda(subtotal || 0)}</span></div>)}
+                <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><span>Total de moedas</span><span>{formatarMoeda(vendaDetalhada.valorMoedas)}</span></div>
+              </section>
+              <div className="flex justify-between py-2 border-t border-slate-200"><span className="text-slate-600">Pix</span><span>{formatarMoeda(vendaDetalhada.valorPix || 0)}</span></div>
+              <div className="flex justify-between rounded-lg bg-primary-50 p-3 font-bold"><span>Total do fechamento</span><span className="text-primary-700">{formatarMoeda(vendaDetalhada.valorTotal)}</span></div>
+            </div>
+            <button onClick={() => setVendaDetalhada(null)} className="mt-5 w-full rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">Fechar</button>
+          </div>
         </div>
       )}
     </div>
